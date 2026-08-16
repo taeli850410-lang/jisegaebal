@@ -34,7 +34,8 @@ for (const st of stages) {
     p.office?.phone ||
     p.floors ||
     p.improvement?.total ||
-    p.schedule
+    p.schedule ||
+    p.drawings
   if (!hasAny) continue
 
   matched++
@@ -50,6 +51,7 @@ for (const st of stages) {
     improvement: p.improvement ?? null,
     schedule: p.schedule ?? null,
     office: p.office ?? null,
+    drawings: p.drawings ?? null,
   }
 }
 

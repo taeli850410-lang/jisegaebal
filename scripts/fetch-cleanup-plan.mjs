@@ -142,6 +142,26 @@ for (const [i, site] of targets.entries()) {
   const sched = findTable(tables, '예정시기')
   const schedule = sched?.rows?.[0]?.[1] ?? null
 
+  /* 도면 — 위치도·조감도·배치도
+     탭 링크의 div 값이 locImage/sceImage/posImage 다.
+     (앞서 drwng 로 찔러 404 를 받았던 건 이름을 잘못 짚은 것이었다) */
+  const drawings = {}
+  for (const [key, div] of [
+    ['location', 'locImage'],
+    ['aerial', 'sceImage'],
+    ['layout', 'posImage'],
+  ]) {
+    const page = await get(
+      `${BASE}/cafe/mastr-cleanup-bsnsSumry/execute.do?cafeId=${cafeId}&stepSeCode=${step}&div=${div}`,
+    )
+    const src = [...page.matchAll(/<img[^>]+src="([^"]+)"/g)]
+      .map((m) => m[1])
+      // onerror 핸들러 안의 자바스크립트 조각이 src 로 잡히는 걸 걸러낸다
+      .find((s) => /\/servlet\/image/.test(s))
+    if (src) drawings[key] = src
+    await sleep(80)
+  }
+
   /* 추진 주체 — 찾아오시는길 */
   const adi = await get(`${BASE}/cafe/cleanup-asscinfo/vscrAsscAdi.do?cafeId=${cafeId}`)
   const at = clean(adi)
@@ -165,6 +185,7 @@ for (const [i, site] of targets.entries()) {
     improvement,
     schedule,
     office: office.address || office.phone ? office : null,
+    drawings: Object.keys(drawings).length ? drawings : null,
   }
   done++
 

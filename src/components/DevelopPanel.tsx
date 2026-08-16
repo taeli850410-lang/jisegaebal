@@ -155,6 +155,7 @@ interface ZonePlan {
   } | null
   schedule: string | null
   office: { address: string | null; phone: string | null } | null
+  drawings: { location?: string; aerial?: string; layout?: string } | null
 }
 
 interface FullData {
@@ -1077,6 +1078,43 @@ export default function DevelopPanel({
                     출처: 서울시 정비사업 정보몽땅 사업개요 · 사업장 「{sum.siteName}」
                   </p>
                 </>
+              )}
+
+              {/* ── 도면 (조감도·위치도·배치도) ──
+                  사진의 상단 이미지 자리다. 원본이 1~2MB라 직접 링크하지 않고
+                  /api/cleanup-image 로 중계해 캐시한다. */}
+              {plan?.drawings && (
+                <div className="mb-4 -mx-1 flex gap-2 overflow-x-auto pb-1">
+                  {(
+                    [
+                      ['aerial', '조감도'],
+                      ['location', '위치도'],
+                      ['layout', '배치도'],
+                    ] as const
+                  )
+                    .filter(([k]) => plan.drawings![k])
+                    .map(([k, label]) => (
+                      <a
+                        key={k}
+                        href={`/api/cleanup-image?path=${encodeURIComponent(plan.drawings![k]!)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group relative block shrink-0"
+                      >
+                        {/* 크기가 제각각이라 고정 박스 안에 채워 넣는다 */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/api/cleanup-image?path=${encodeURIComponent(plan.drawings![k]!)}`}
+                          alt={label}
+                          loading="lazy"
+                          className="h-28 w-40 rounded-lg border border-gray-200 bg-gray-50 object-cover"
+                        />
+                        <span className="absolute bottom-1 left-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          {label}
+                        </span>
+                      </a>
+                    ))}
+                </div>
               )}
 
               {/* ── 공급 계획 (정비몽땅 사업개요) ── */}

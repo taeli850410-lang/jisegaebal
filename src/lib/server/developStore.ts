@@ -137,6 +137,8 @@ export interface ZonePlan {
   improvement: { total: number | null; keep: number | null; repair: number | null; rebuild: number | null } | null
   schedule: string | null
   office: { address: string | null; phone: string | null } | null
+  /** 정비몽땅 도면 경로 (위치도·조감도·배치도) — /api/cleanup-image 로 중계한다 */
+  drawings: { location?: string; aerial?: string; layout?: string } | null
 }
 
 /** 정비몽땅 추진경과에서 뽑은 단계별 인가일 (scripts/merge-progress.mjs) */
