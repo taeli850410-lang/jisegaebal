@@ -869,7 +869,16 @@ export default function MapView() {
           </p>
         )}
 
-        {selected && <DevelopPanel develop={selected} onClose={() => setSelected(null)} />}
+        {selected && (
+          <DevelopPanel
+            develop={selected}
+            onClose={() => setSelected(null)}
+            onFocus={(bbox, id) => {
+              focusByBounds(bbox)
+              setPendingSelectId(id)
+            }}
+          />
+        )}
       </main>
     </div>
   )
