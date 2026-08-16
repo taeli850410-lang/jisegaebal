@@ -618,9 +618,7 @@ function compute(zone, parcels, buildingsByLd, recapsByLd, landChars) {
 let targets = develops.filter((d) => d.gu && d.areaM2 > 3000)
 if (GU) targets = targets.filter((d) => d.gu === GU)
 // 이미 만든 구역은 건너뛰고, 큰 구역부터 — 관심도가 높다
-// tier1 은 값싼 항목만 내므로, 이미 비싼 항목까지 있는 구역을 덮어쓰면 손해다
-if (TIER1) targets = targets.filter((d) => !(d.id in stats))
-else if (!REFRESH) targets = targets.filter((d) => !(d.id in stats))
+if (!REFRESH) targets = targets.filter((d) => !(d.id in stats))
 targets = targets.sort((a, b) => b.areaM2 - a.areaM2)
 targets = targets.slice(0, LIMIT)
 
@@ -732,6 +730,24 @@ for (const [i, zone] of targets.entries()) {
   }
   s.legalDongs = ldCodes.length
   if (pnus.length < all.length) s.landCharSampled = pnus.length
+
+  /*
+   * tier1 은 필지 단위 V-World 를 건너뛰므로 접도율·용도지역·규제·소유가 비어 있다.
+   * 이미 그 값이 있는 구역을 tier1 으로 덮어쓰면 애써 받은 걸 잃는다.
+   * 값싼 항목만 갈아끼우고 비싼 항목은 이전 것을 살린다.
+   */
+  const prev = stats[zone.id]
+  if (TIER1 && prev) {
+    if (prev.regulations) s.regulations = prev.regulations
+    if (prev.ownership) s.ownership = prev.ownership
+    if (prev.landCharSampled) s.landCharSampled = prev.landCharSampled
+    if (prev.conditions?.abuttingBase) {
+      s.conditions.abutting = prev.conditions.abutting
+      s.conditions.abuttingBase = prev.conditions.abuttingBase
+    }
+    if (prev.actual?.useZones?.length) s.actual.useZones = prev.actual.useZones
+    if (prev.actual?.roadMix?.length) s.actual.roadMix = prev.actual.roadMix
+  }
   // 반지하는 층별개요 파일이 있을 때만 낸다. 없으면 지하층 보유로 대체 표기한다.
   if (semiBasement != null) s.conditions.semiBasement = semiBasement
   stats[zone.id] = s
