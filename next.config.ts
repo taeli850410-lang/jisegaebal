@@ -10,8 +10,8 @@ const nextConfig: NextConfig = {
    * 배포 대상 라우트에 명시적으로 포함시킨다.
    */
   outputFileTracingIncludes: {
-    '/api/develops': ['./data/develops.seoul.json'],
-    '/api/parcels': ['./data/develops.seoul.json'],
+    '/api/develops': ['./data/develops.seoul.json', './data/stages.seoul.json'],
+    '/api/parcels': ['./data/develops.seoul.json', './data/stages.seoul.json'],
   },
 }
 
