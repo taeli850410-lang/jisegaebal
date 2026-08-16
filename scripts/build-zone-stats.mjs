@@ -301,6 +301,15 @@ if (BUILDING_INDEX) {
 }
 
 /**
+ * 지하 1층에 주거가 있는 건물 PK 집합.
+ * 구역의 건물 목록과 교집합을 세므로 분자가 분모를 넘을 수 없다.
+ */
+const SEMI_PKS = existsSync('data/semi-basement-pks.json')
+  ? new Set(JSON.parse(readFileSync('data/semi-basement-pks.json', 'utf-8')))
+  : null
+if (SEMI_PKS) console.log(`반지하 건물 ${SEMI_PKS.size.toLocaleString()}동`)
+
+/**
  * 법정동 단위 건축물대장 캐시 — 디스크에 남긴다.
  *
  * 서울 법정동은 약 470개뿐이고 구역은 1,690개다. 여러 구역이 같은 동을 공유하므로
@@ -587,6 +596,10 @@ function compute(zone, parcels, buildingsByLd, recapsByLd, landChars) {
        * 벤치마크도 접도율과 같은 분모(전체 동)를 쓴다.
        */
       totalBuildings: blds.length,
+      // 이 구역 건물 중 지하 1층에 주거가 있는 동
+      ...(SEMI_PKS
+        ? { semiBasement: blds.filter((b) => SEMI_PKS.has(b.mgmBldrgstPk)).length }
+        : {}),
       householdsPerHa: ha > 0 ? Math.round(totalHouseholds / ha) : null,
       // 접도율 — 건물이 있는 필지 중 폭 4m 이상 도로에 접한 비율
       abutting,
@@ -667,11 +680,9 @@ for (const [i, zone] of targets.entries()) {
   const ldCodes = [...new Set(parcels.map((p) => p.pnu.slice(0, 10)))]
   const buildingsByLd = new Map()
   const recapsByLd = new Map()
-  let semiBasement = null
 
   if (BUILDING_INDEX) {
     // 색인은 지번 단위라 법정동 묶음을 만들 필요 없이 필지에서 바로 찾는다
-    semiBasement = 0
     for (const ld of ldCodes) {
       buildingsByLd.set(ld, [])
       recapsByLd.set(ld, [])
@@ -705,7 +716,6 @@ for (const [i, zone] of targets.entries()) {
       if (e.recap) {
         recapsByLd.get(ld).push({ ...lot, hhldCnt: e.recap.hhld, mainBldCnt: e.recap.main })
       }
-      semiBasement += e.semiBasement ?? 0
     }
     // 파일 색인은 법정동 API 캐시를 쓰지 않는다 — 표제부가 이미 다 들어 있다
     persistBld()
@@ -780,8 +790,6 @@ for (const [i, zone] of targets.entries()) {
     if (prev.actual?.useZones?.length) s.actual.useZones = prev.actual.useZones
     if (prev.actual?.roadMix?.length) s.actual.roadMix = prev.actual.roadMix
   }
-  // 반지하는 층별개요 파일이 있을 때만 낸다. 없으면 지하층 보유로 대체 표기한다.
-  if (semiBasement != null) s.conditions.semiBasement = semiBasement
   stats[zone.id] = s
   ok++
   console.log(

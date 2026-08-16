@@ -42,3 +42,5 @@ data/building-index.json
 
 # 건축물대장 원본 CSV (1GB+)
 .claude/*.csv
+
+data/semi-basement-pks.json

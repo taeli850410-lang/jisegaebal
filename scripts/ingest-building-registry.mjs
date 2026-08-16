@@ -127,6 +127,8 @@ const key = (gu, dong, bun, ji) =>
 
 const index = {}
 const touch = (k) => (index[k] ??= { buildings: [], semiBasement: 0 })
+/** 지하 1층에 주거가 있는 건물의 대장 PK 목록 */
+const semiPks = []
 
 const mb = (p) => Math.round(statSync(p).size / 1024 / 1024)
 
@@ -216,13 +218,17 @@ const mb = (p) => Math.round(statSync(p).size / 1024 / 1024)
       if (!/지하/.test(r[c.flrGb] ?? '')) continue
       if (num(r[c.flrNo]) !== 1) continue
       if (!/주택|주거/.test(r[c.purpose] ?? '')) continue
-      // 같은 동에 지하1층 주거가 여러 호 있어도 한 동으로 센다
-      const pk = (r[c.pk] ?? '').trim()
-      const k = key(r[c.gu], r[c.dong], r[c.bun], r[c.ji])
-      const uniq = pk ? `${k}|${pk}` : `${k}|${n}`
-      if (seen.has(uniq)) continue
-      seen.add(uniq)
-      touch(k).semiBasement++
+      /*
+       * 지번 단위로 세면 안 된다.
+       * 한 지번이 여러 필지로 잡히거나 산/일반이 같은 키로 합쳐지면 중복 합산되어
+       * 분자가 분모를 넘는다(상계2가 745/388동, 192% 로 나왔다).
+       * 건축물대장 PK 를 그대로 모아두고, 구역 계산에서 그 구역의 건물 목록과
+       * 교집합을 세면 분모를 넘을 수 없다.
+       */
+      const pk = (r[c.pk] ?? '').replace(/"/g, '').trim()
+      if (!pk || seen.has(pk)) continue
+      seen.add(pk)
+      semiPks.push(pk)
       hit++
       if (n % 1_000_000 === 0) console.log(`  ${n.toLocaleString()}행 · 반지하 ${hit.toLocaleString()}`)
     }
@@ -261,7 +267,8 @@ const mb = (p) => Math.round(statSync(p).size / 1024 / 1024)
 
 mkdirSync('data', { recursive: true })
 writeFileSync('data/building-index.json', JSON.stringify(index))
-const withSemi = Object.values(index).filter((v) => v.semiBasement > 0).length
+writeFileSync('data/semi-basement-pks.json', JSON.stringify(semiPks))
 console.log(
-  `\n저장: data/building-index.json — 지번 ${Object.keys(index).length.toLocaleString()}개 · 반지하 보유 ${withSemi.toLocaleString()}지번`,
+  `\n저장: data/building-index.json — 지번 ${Object.keys(index).length.toLocaleString()}개`,
 )
+console.log(`      data/semi-basement-pks.json — 반지하 건물 ${semiPks.length.toLocaleString()}동`)
