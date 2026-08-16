@@ -5,8 +5,9 @@ import { PROJECT_TYPE_MAP, STAGES, stageColor } from '@/lib/taxonomy'
 import { resolveStage } from '@/lib/stage'
 import { isFavorite, toggleFavorite } from '@/lib/userStore'
 import type { ApiDevelop } from '@/lib/types'
-import DealChart from './detail/DealChart'
+import DealChart, { type ChartPoint } from './detail/DealChart'
 import BurdenSimulator from './detail/BurdenSimulator'
+import ZoneReport from './detail/ZoneReport'
 
 /** 매칭 방식에 따라 신뢰도가 다르다 — 숨기지 않고 드러낸다 */
 const MATCH_LABEL: Record<string, { text: string; grade: 'A' | 'B' | 'C' }> = {
@@ -117,7 +118,8 @@ interface FullData {
   deals: Deal[]
   dealCount: number
   medianPerPyeong: number | null
-  series: { ym: string; value: number | null; count: number }[]
+  series: ChartPoint[]
+  kindLabels: Record<string, string>
   nearby: (Nearby & {
     memberCount: number | null
     far: number | null
@@ -320,6 +322,7 @@ export default function DevelopPanel({
   const [fav, setFav] = useState(false)
   const [showAllDeals, setShowAllDeals] = useState(false)
   const [simOpen, setSimOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const [news, setNews] = useState<NewsItem[] | null>(null)
   const [activeTab, setActiveTab] = useState<string>('deals')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -575,7 +578,11 @@ export default function DevelopPanel({
                 </p>
               ) : (
                 <>
-                  <DealChart series={data!.series} milestones={milestones} />
+                  <DealChart
+                    series={data!.series}
+                    milestones={milestones}
+                    kindLabels={data!.kindLabels}
+                  />
 
                   <table className="mt-3 w-full text-[11px]">
                     <thead>
@@ -751,6 +758,22 @@ export default function DevelopPanel({
             {/* 자료실 — 원문으로 바로 가는 링크. 파일을 우리가 복제해 두지는 않는다. */}
             <section data-section="library" className="border-b-8 border-gray-50 px-5 py-4">
               <h3 className="mb-2 text-sm font-bold">자료실</h3>
+
+              <button
+                onClick={() => setReportOpen(true)}
+                className="mb-3 flex w-full items-center justify-between rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-left hover:bg-indigo-100"
+              >
+                <span>
+                  <span className="block text-[13px] font-bold text-indigo-800">
+                    구역 리포트 PDF
+                  </span>
+                  <span className="block text-[11px] text-indigo-500">
+                    개요·경과·실거래·인근 단지 — 지금 데이터로 즉시 생성
+                  </span>
+                </span>
+                <span className="shrink-0 text-[11px] font-bold text-indigo-600">내려받기 ↓</span>
+              </button>
+
               <ul className="divide-y divide-gray-100">
                 {[
                   {
@@ -1231,6 +1254,33 @@ export default function DevelopPanel({
           </>
         )}
       </div>
+
+      {reportOpen && (
+        <ZoneReport
+          data={{
+            name: z.name,
+            gu: z.gu ?? null,
+            dong: data?.zone.dong ?? null,
+            projectType: z.projectType,
+            stage: z.stage ?? null,
+            currentStageLabel: canonical?.label ?? null,
+            monthsInStage,
+            areaM2: z.areaM2,
+            noticeDate: data?.zone.noticeDate ?? null,
+            noticeSn: z.noticeSn ?? null,
+            dealCount: data?.dealCount ?? 0,
+            medianPerPyeong: data?.medianPerPyeong ?? null,
+            summary: sum,
+            progressDates: STAGES.filter((s) => prog?.dates[s.code]).map((s) => ({
+              label: s.label,
+              date: prog!.dates[s.code].date,
+            })),
+            deals,
+            apartments: data?.apartments ?? [],
+          }}
+          onClose={() => setReportOpen(false)}
+        />
+      )}
 
       {simOpen && (
         <BurdenSimulator

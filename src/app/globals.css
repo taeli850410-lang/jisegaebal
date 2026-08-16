@@ -72,6 +72,46 @@ body {
   border-left: 3px solid currentColor;
 }
 
+/* ── 구역 리포트 인쇄 ────────────────────────────────
+   리포트를 띄운 상태에서 인쇄하면 지도·패널이 같이 찍힌다.
+   리포트 조상만 남기고 형제 요소를 전부 숨긴다. */
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+  body {
+    background: #fff;
+  }
+  /* 리포트는 앱 트리 깊숙이 있어서 "형제만 숨기기"로는 격리가 안 된다.
+     전부 안 보이게 한 뒤 리포트 가지만 되살린다. */
+  body * {
+    visibility: hidden;
+  }
+  .zone-report,
+  .zone-report * {
+    visibility: visible;
+  }
+  .zone-report {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+  .zone-report table {
+    break-inside: auto;
+  }
+  .zone-report tr {
+    break-inside: avoid;
+  }
+  .zone-report section {
+    break-inside: avoid-page;
+  }
+}
+
 /* ── 지역별 집계 배지 (축소 뷰) ──────────────────────
    위: 지역명(흰 바탕) / 아래: 구역 수(진한 바탕). 누르면 그 지역으로 확대. */
 .zone-cluster {

@@ -207,14 +207,27 @@ export async function GET(request: Request) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
     ymKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
   }
+  // 유형을 섞어 하나의 중앙값만 주면 다세대와 단독이 평균으로 뭉개진다.
+  // 차트에서 계열을 나눠 그릴 수 있도록 유형별 값도 같이 내려준다.
+  const kinds = [...new Set(deals.map((d) => d.kind))]
   const series = ymKeys.map((ym) => {
     const inMonth = deals.filter((d) => d.dealDate.startsWith(ym))
+    const byKind: Record<string, number | null> = {}
+    for (const k of kinds) {
+      byKind[k] = median(inMonth.filter((d) => d.kind === k).map((d) => d.pricePerLandPyeong ?? NaN))
+    }
     return {
       ym,
       value: median(inMonth.map((d) => d.pricePerLandPyeong ?? NaN)),
+      // 거래가격(총액) 중앙값 — 평당가와 번갈아 볼 수 있게
+      price: median(inMonth.map((d) => d.price)),
+      byKind,
       count: inMonth.length,
     }
   })
+
+  const kindLabels: Record<string, string> = {}
+  for (const k of kinds) kindLabels[k] = deals.find((d) => d.kind === k)!.typeLabel
 
   return NextResponse.json({
     zone: {
@@ -241,6 +254,7 @@ export async function GET(request: Request) {
     dealCount: deals.length,
     medianPerPyeong: median(deals.map((d) => d.pricePerLandPyeong ?? NaN)),
     series,
+    kindLabels,
     nearby,
     apartments,
     constructionZones,
