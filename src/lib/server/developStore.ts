@@ -95,6 +95,16 @@ export interface ZoneStats {
     withBasement: number
     residentialBuildings: number
     householdsPerHa: number | null
+    abutting?: number
+    abuttingBase?: number
+  }
+  actual?: {
+    far: number | null
+    bcr: number | null
+    platAreaM2: number
+    buildings: number
+    useZones: { label: string; areaM2: number }[]
+    roadMix: { label: string; count: number }[]
   }
   landUse: { label: string; areaM2: number }[]
   landPrice: { medianPerM2: number; samples: number } | null

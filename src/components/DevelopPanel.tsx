@@ -119,6 +119,16 @@ interface ZoneStats {
     withBasement: number
     residentialBuildings: number
     householdsPerHa: number | null
+    abutting?: number
+    abuttingBase?: number
+  }
+  actual?: {
+    far: number | null
+    bcr: number | null
+    platAreaM2: number
+    buildings: number
+    useZones: { label: string; areaM2: number }[]
+    roadMix: { label: string; count: number }[]
   }
   landUse: { label: string; areaM2: number }[]
   landPrice: { medianPerM2: number; samples: number } | null
@@ -1080,6 +1090,18 @@ export default function DevelopPanel({
                             : '—',
                         sub: `(${stats.households.total.toLocaleString()}호)`,
                       },
+                      ...(stats.conditions.abuttingBase
+                        ? [
+                            {
+                              k: '접도율',
+                              v: `${stats.conditions.abutting} / ${stats.conditions.abuttingBase}필지`,
+                              sub: pct(
+                                stats.conditions.abutting ?? 0,
+                                stats.conditions.abuttingBase,
+                              ),
+                            },
+                          ]
+                        : []),
                       {
                         k: '지하층 보유',
                         v: `${stats.conditions.withBasement}동 / ${stats.conditions.residentialBuildings}동`,
@@ -1100,9 +1122,47 @@ export default function DevelopPanel({
                     ]}
                   />
                   <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
-                    과소필지는 90㎡ 미만 필지입니다. 지하층 보유는 반지하의 대리지표로, 정확한
-                    반지하 비율은 층별개요를 봐야 합니다. 접도율은 아직 연동되지 않았습니다.
+                    과소필지는 90㎡ 미만 필지입니다. 접도율은 건물이 있는 필지 중 폭 4m 이상
+                    도로(소로 이상)에 접한 비율이며, 도로접면 등급은 토지특성 자료를 따릅니다.
+                    지하층 보유는 반지하의 대리지표로, 정확한 반지하 비율은 층별개요를 봐야 합니다.
                   </p>
+
+                  {/* 현황 제원 — 정비몽땅 사업개요가 없는 구역도 지금 밀도를 알 수 있다 */}
+                  {stats.actual && (stats.actual.far || stats.actual.useZones.length > 0) && (
+                    <>
+                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                        현황 제원
+                        <span className="ml-1 text-[11px] font-normal text-gray-400">
+                          건축물대장 기준
+                        </span>
+                        <Grade grade="B" />
+                      </h3>
+                      <StatRows
+                        rows={[
+                          ...(stats.actual.far
+                            ? [{ k: '현황 용적률', v: `${stats.actual.far}%` }]
+                            : []),
+                          ...(stats.actual.bcr
+                            ? [{ k: '현황 건폐율', v: `${stats.actual.bcr}%` }]
+                            : []),
+                          {
+                            k: '건물 대지면적',
+                            v: `${stats.actual.platAreaM2.toLocaleString()}㎡`,
+                            sub: `(${stats.actual.buildings}동)`,
+                          },
+                          ...stats.actual.useZones.slice(0, 3).map((u, i) => ({
+                            k: i === 0 ? '용도지역' : '',
+                            v: u.label,
+                            sub: `${u.areaM2.toLocaleString()}㎡`,
+                          })),
+                        ]}
+                      />
+                      <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                        계획값이 아니라 지금 서 있는 건물의 실측 평균입니다. 용적률·건폐율은
+                        대지면적으로 가중했습니다. 용도지역은 토지특성(V-World) 기준입니다.
+                      </p>
+                    </>
+                  )}
 
                   {stats.landUse.length > 0 && (
                     <>
@@ -1156,14 +1216,29 @@ export default function DevelopPanel({
               <p className="mt-5 mb-1.5 text-xs font-bold text-gray-500">아직 연동되지 않은 정보</p>
               <ul className="space-y-1">
                 {[
-                  ...(sum ? [] : [['사업 제원 (면적·소유자·용적률)', '정비몽땅 사업개요 미등록'] as const]),
+                  // 사업개요가 없어도 현황 제원(건축물대장)으로 밀도는 알 수 있다.
+                  // 계획값이 비었다는 사실만 남긴다.
+                  ...(sum
+                    ? []
+                    : [
+                        [
+                          '계획 제원 (공급세대·계획 용적률)',
+                          stats?.actual?.far
+                            ? '정비몽땅 사업개요 미등록 — 위 현황 제원으로 대체'
+                            : '정비몽땅 사업개요 미등록',
+                        ] as const,
+                      ]),
                   ...(prog ? [] : [['단계별 인가일', '정비몽땅 추진경과 미등록'] as const]),
                   ...(stats
                     ? []
                     : [['세대현황 · 노후도 · 개발여건', '이 구역은 아직 산출 전입니다'] as const]),
-                  ['권리산정기준일', '고시문 파싱'],
-                  ['접도율 · 반지하 비율', '토지특성(V-World) + 층별개요'],
-                  ['매물 · 경매', '중개 제휴 / 법원경매'],
+                  // 정비몽땅 사업개요에 권리산정기준일 필드가 없다(재개발·재건축 모두 확인).
+                  // 서울시 고시공고 본문 파싱만 남는데 구역별 매칭이 불안정하다.
+                  ['권리산정기준일', '고시문 본문 — 자동 매칭 불안정'],
+                  ['토지등소유자 수', '개인정보 — 공개 API 없음'],
+                  ['반지하 비율', '건축물대장 층별개요 (현재는 지하층 보유로 대체)'],
+                  ['매물', '중개 제휴 필요'],
+                  ['경매', '법원경매 공개 API 없음 · 온비드 공매는 경로 확인 중'],
                 ].map(([k, src]) => (
                   <li
                     key={k}

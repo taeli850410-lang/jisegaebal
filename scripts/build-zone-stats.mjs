@@ -33,6 +33,8 @@ const arg = (name, dflt) => {
 }
 const LIMIT = Number(arg('--limit', '40'))
 const GU = arg('--gu', null)
+/** 이미 산출한 구역도 다시 계산한다 (필드를 추가했을 때) */
+const REFRESH = process.argv.includes('--refresh')
 
 const OUT = 'data/zone-stats.json'
 const stats = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf-8')) : {}
@@ -121,6 +123,55 @@ async function parcelsIn(zone) {
   return null
 }
 
+/* ── 토지특성 (필지 단위) ───────────────────────────
+   접도율·용도지역의 원천. PNU 하나당 한 번씩 불러야 하지만 응답이 매우 빨라
+   (5건 74ms) 구역당 수백 건도 감당된다. */
+async function landCharacteristics(pnus) {
+  const out = new Map()
+  const C = 10
+  for (let i = 0; i < pnus.length; i += C) {
+    const slice = pnus.slice(i, i + C)
+    await Promise.all(
+      slice.map(async (pnu) => {
+        for (let a = 0; a < 2; a++) {
+          if (a) await sleep(300)
+          try {
+            const j = await (
+              await fetch(
+                `https://api.vworld.kr/ned/data/getLandCharacteristics?key=${VKEY}` +
+                  `&domain=${encodeURIComponent(DOMAIN)}&format=json&numOfRows=1&pageNo=1&pnu=${pnu}`,
+              )
+            ).json()
+            const b = j[Object.keys(j)[0]]
+            const f = b?.field ? (Array.isArray(b.field) ? b.field : [b.field]) : []
+            // 최신 연도 한 건만 쓴다 (응답이 연도 오름차순이라 마지막)
+            if (f.length) out.set(pnu, f[f.length - 1])
+            return
+          } catch {
+            /* 재시도 */
+          }
+        }
+      }),
+    )
+  }
+  return out
+}
+
+/**
+ * 접도 여부.
+ *
+ * 도시정비법의 접도율은 "폭 4m 이상 도로에 접한 대지" 기준이다.
+ * 토지특성 도로접면 코드에서 광대로·중로·소로 계열이 여기 해당하고,
+ * 세로(가)·세로(불)·맹지는 4m 미만이거나 도로에 닿지 않는다.
+ */
+function isAbutting(roadSideCodeNm) {
+  const s = String(roadSideCodeNm ?? '')
+  if (!s) return null
+  if (/맹지|세로/.test(s)) return false
+  if (/광대|중로|소로/.test(s)) return true
+  return null
+}
+
 /* ── 건축물대장 표제부 (법정동 단위, 캐시) ──────────── */
 const bldCache = new Map()
 async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
@@ -174,7 +225,7 @@ async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
 const RESIDENTIAL = /주택/
 const YEAR = new Date().getFullYear()
 
-function compute(zone, parcels, buildingsByLd, recapsByLd) {
+function compute(zone, parcels, buildingsByLd, recapsByLd, landChars) {
   // 법정동 + 본번 + 부번으로 색인한다.
   // 본번/부번만 쓰면 여러 법정동에 걸친 구역에서 다른 동의 같은 지번이 섞인다.
   const byLot = new Map()
@@ -250,6 +301,50 @@ function compute(zone, parcels, buildingsByLd, recapsByLd) {
   const totalHouseholds = aptHouseholds + houseHouseholds
   const ha = zone.areaM2 / 10000
 
+  /* ── 접도율 ── 건물이 있는 필지만 대상으로 한다 (도로·공원 필지는 의미 없다) */
+  const builtPnus = new Set()
+  for (const p of parcels) {
+    const k = `${p.pnu.slice(0, 10)}|${p.pnu.slice(11, 15)}${p.pnu.slice(15, 19)}`
+    if ((byLot.get(k) ?? []).length) builtPnus.add(p.pnu)
+  }
+  let abutting = 0
+  let roadKnown = 0
+  const roadMix = {}
+  for (const pnu of builtPnus) {
+    const lc = landChars?.get(pnu)
+    const v = isAbutting(lc?.roadSideCodeNm)
+    if (v === null) continue
+    roadKnown++
+    if (v) abutting++
+    const nm = String(lc.roadSideCodeNm).trim()
+    roadMix[nm] = (roadMix[nm] ?? 0) + 1
+  }
+
+  /* ── 용도지역 분포 (공부상 면적 기준) ── */
+  const zoneMix = {}
+  for (const p of parcels) {
+    const lc = landChars?.get(p.pnu)
+    const nm = String(lc?.prposArea1Nm ?? '').trim()
+    if (!nm || nm === '지정되지않음') continue
+    zoneMix[nm] = (zoneMix[nm] ?? 0) + (num(lc.lndpclAr) || p.areaM2)
+  }
+
+  /* ── 실제 용적률·건폐율 ── 표제부 값을 대지면적으로 가중 평균한다.
+     정비몽땅 사업개요가 없는 구역에서도 현황 밀도를 알 수 있다. */
+  const weighted = (field) => {
+    let sw = 0
+    let sv = 0
+    for (const b of blds) {
+      const w = num(b.platArea)
+      const v = num(b[field])
+      if (w > 0 && v > 0) {
+        sw += w
+        sv += v * w
+      }
+    }
+    return sw > 0 ? Math.round((sv / sw) * 10) / 10 : null
+  }
+
   return {
     parcelCount: parcels.length,
     households: {
@@ -271,6 +366,24 @@ function compute(zone, parcels, buildingsByLd, recapsByLd) {
       withBasement: homes.filter((b) => num(b.ugrndFlrCnt) > 0).length,
       residentialBuildings: homes.length,
       householdsPerHa: ha > 0 ? Math.round(totalHouseholds / ha) : null,
+      // 접도율 — 건물이 있는 필지 중 폭 4m 이상 도로에 접한 비율
+      abutting,
+      abuttingBase: roadKnown,
+    },
+    /* 현황 제원 — 정비몽땅 사업개요가 없는 구역의 대체값 */
+    actual: {
+      far: weighted('vlRat'),
+      bcr: weighted('bcRat'),
+      platAreaM2: Math.round(blds.reduce((s, b) => s + num(b.platArea), 0)),
+      buildings: blds.length,
+      useZones: Object.entries(zoneMix)
+        .map(([label, areaM2]) => ({ label, areaM2: Math.round(areaM2) }))
+        .sort((a, b) => b.areaM2 - a.areaM2)
+        .slice(0, 5),
+      roadMix: Object.entries(roadMix)
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5),
     },
     landUse: Object.entries(landBy)
       .filter(([, v]) => v > 0)
@@ -290,7 +403,8 @@ function compute(zone, parcels, buildingsByLd, recapsByLd) {
 let targets = develops.filter((d) => d.gu && d.areaM2 > 3000)
 if (GU) targets = targets.filter((d) => d.gu === GU)
 // 이미 만든 구역은 건너뛰고, 큰 구역부터 — 관심도가 높다
-targets = targets.filter((d) => !(d.id in stats)).sort((a, b) => b.areaM2 - a.areaM2)
+if (!REFRESH) targets = targets.filter((d) => !(d.id in stats))
+targets = targets.sort((a, b) => b.areaM2 - a.areaM2)
 targets = targets.slice(0, LIMIT)
 
 console.log(`대상 ${targets.length}개 구역 (기존 ${Object.keys(stats).length}개)`)
@@ -311,13 +425,20 @@ for (const [i, zone] of targets.entries()) {
     recapsByLd.set(ld, await buildingsOf(ld, 'getBrRecapTitleInfo'))
   }
 
-  const s = compute(zone, parcels, buildingsByLd, recapsByLd)
+  // 토지특성은 필지 단위라 콜이 많다. 아주 큰 구역은 상한을 두고 표본으로 본다.
+  const CAP = 900
+  const pnus = parcels.map((p) => p.pnu).slice(0, CAP)
+  const landChars = await landCharacteristics(pnus)
+
+  const s = compute(zone, parcels, buildingsByLd, recapsByLd, landChars)
   s.legalDongs = ldCodes.length
+  if (parcels.length > CAP) s.landCharSampled = CAP
   stats[zone.id] = s
   ok++
   console.log(
     `  [${i + 1}/${targets.length}] ${zone.name} — 필지 ${s.parcelCount} · 세대 ${s.households.total} · ` +
-      `노후 ${s.aging.now}/${s.aging.denominator} · 과소 ${s.conditions.smallParcels}`,
+      `노후 ${s.aging.now}/${s.aging.denominator} · 과소 ${s.conditions.smallParcels} · ` +
+      `접도 ${s.conditions.abutting}/${s.conditions.abuttingBase} · 용적 ${s.actual.far ?? '—'}%`,
   )
   mkdirSync('data', { recursive: true })
   writeFileSync(OUT, JSON.stringify(stats))
