@@ -102,7 +102,17 @@ interface FullData {
   medianPerPyeong: number | null
   series: { ym: string; value: number | null; count: number }[]
   nearby: Nearby[]
+  apartments: Apartment[]
   unavailable: string | null
+}
+
+/** 인근 아파트 — 이 구역이 완성되면 얼마쯤 되나의 기준점 */
+interface Apartment {
+  name: string
+  buildYear: number | null
+  ageYears: number | null
+  distanceKm: number
+  areas: { pyeong: number; exclusiveAr: number; price: number; dealDate: string }[]
 }
 
 const eok = (won: number) =>
@@ -570,8 +580,9 @@ export default function DevelopPanel({
                   ...(sum ? [] : [['사업 제원 (면적·소유자·용적률)', '정비몽땅 사업개요 미등록'] as const]),
                   ...(prog ? [] : [['단계별 인가일', '정비몽땅 추진경과 미등록'] as const]),
                   ['권리산정기준일', '고시문 파싱'],
-                  ['노후도 · 개발여건', '건축물대장 + 연속지적도'],
-                  ['매물 · 경매 · 인근 아파트', '중개 제휴 / 법원경매 / K-apt'],
+                  ['노후도 · 개발여건', '건축물대장 + 연속지적도(V-World)'],
+                  ['아파트 세대수 · 동수', 'K-apt (서비스 활용신청 필요)'],
+                  ['매물 · 경매', '중개 제휴 / 법원경매'],
                 ].map(([k, src]) => (
                   <li
                     key={k}
@@ -648,9 +659,58 @@ export default function DevelopPanel({
                 </p>
               )}
 
+              {/* 인근 아파트 */}
+              <h3 className="mt-6 mb-2 text-sm font-bold">
+                인근 아파트
+                <span className="ml-1 text-[11px] font-normal text-gray-400">
+                  반경 1.5km · 최근 12개월 실거래
+                </span>
+              </h3>
+              {data?.apartments.length ? (
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-gray-400">
+                      <th className="py-1.5 text-left font-medium">이름</th>
+                      <th className="py-1.5 text-right font-medium">연차</th>
+                      <th className="py-1.5 text-right font-medium">전용</th>
+                      <th className="py-1.5 text-right font-medium">가격</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.apartments.map((a) =>
+                      a.areas.map((ar, i) => (
+                        <tr key={`${a.name}-${ar.exclusiveAr}`} className="border-b border-gray-50 last:border-0">
+                          {i === 0 && (
+                            <>
+                              <td rowSpan={a.areas.length} className="py-2 pr-2 align-top">
+                                <div className="font-semibold">{a.name}</div>
+                                <div className="text-[10px] text-gray-400">{a.distanceKm}km</div>
+                              </td>
+                              <td rowSpan={a.areas.length} className="py-2 text-right align-top text-gray-500">
+                                {a.ageYears != null ? `${a.ageYears}년` : '—'}
+                              </td>
+                            </>
+                          )}
+                          <td className="py-2 text-right whitespace-nowrap text-gray-600">
+                            {Math.round(ar.exclusiveAr)}㎡
+                          </td>
+                          <td className="py-2 text-right font-bold whitespace-nowrap">
+                            {eok(ar.price)}
+                          </td>
+                        </tr>
+                      )),
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs text-gray-500">
+                  반경 1.5km 안에 최근 아파트 실거래가 없습니다.
+                </p>
+              )}
+
               <button
                 disabled
-                className="mt-4 w-full cursor-not-allowed rounded-lg bg-gray-100 py-2.5 text-sm font-bold text-gray-400"
+                className="mt-5 w-full cursor-not-allowed rounded-lg bg-gray-100 py-2.5 text-sm font-bold text-gray-400"
               >
                 💰 분담금 시뮬레이터 (준비 중)
               </button>

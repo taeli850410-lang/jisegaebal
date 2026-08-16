@@ -10,7 +10,7 @@ import { SEOUL_LAWD } from './lawdCodes'
 
 export const PYEONG = 3.3058
 
-export type Kind = 'villa' | 'house' | 'land'
+export type Kind = 'villa' | 'house' | 'land' | 'apt'
 
 const ENDPOINTS: Record<Kind, { url: string; label: string }> = {
   villa: {
@@ -24,6 +24,11 @@ const ENDPOINTS: Record<Kind, { url: string; label: string }> = {
   land: {
     url: 'https://apis.data.go.kr/1613000/RTMSDataSvcLandTrade/getRTMSDataSvcLandTrade',
     label: '토지',
+  },
+  // 아파트는 대지지분이 없어 구역 실거래 집계에는 넣지 않고, 인근 아파트 시세용으로만 쓴다
+  apt: {
+    url: 'https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade',
+    label: '아파트',
   },
 }
 
@@ -74,7 +79,9 @@ function parseItems(xml: string, kind: Kind): Transaction[] {
         ? num(pick(b, 'landAr'))
         : kind === 'house'
           ? num(pick(b, 'plottageAr'))
-          : num(pick(b, 'dealArea'))
+          : kind === 'land'
+            ? num(pick(b, 'dealArea'))
+            : null // 아파트는 대지지분이 제공되지 않는다
 
     const landPyeong = landAr ? landAr / PYEONG : null
     const exclPyeong = exclusiveAr ? exclusiveAr / PYEONG : null
@@ -87,7 +94,7 @@ function parseItems(xml: string, kind: Kind): Transaction[] {
         price,
         dong: pick(b, 'umdNm') ?? '',
         jibun: pick(b, 'jibun') ?? '',
-        buildingName: pick(b, 'mhouseNm') ?? null,
+        buildingName: pick(b, 'mhouseNm') ?? pick(b, 'aptNm') ?? null,
         floor: num(pick(b, 'floor')),
         buildYear: num(pick(b, 'buildYear')),
         exclusiveAr,

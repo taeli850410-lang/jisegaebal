@@ -90,6 +90,66 @@ export async function GET(request: Request) {
     })
   }
 
+  /* ── 인근 아파트 ──
+     아파트는 대지지분이 없어 구역 실거래에는 넣지 않지만,
+     "이 구역이 완성되면 얼마쯤 되나"의 기준점이라 별도로 보여준다. */
+  const apartments: {
+    name: string
+    buildYear: number | null
+    ageYears: number | null
+    distanceKm: number
+    areas: { pyeong: number; exclusiveAr: number; price: number; dealDate: string }[]
+  }[] = []
+
+  if (zone.gu && process.env.DATA_GO_KR_SERVICE_KEY) {
+    const aptDeals = await fetchTransactions(zone.gu, 12, ['apt'])
+    const queries = [...new Set(aptDeals.map((t) => `서울 ${zone.gu} ${t.dong} ${t.jibun}`))]
+    const aptCoords = await geocodeMany(queries, 40)
+
+    // 단지별로 묶고, 구역 중심에서 가까운 순으로 추린다
+    const byApt = new Map<string, { deals: typeof aptDeals; km: number }>()
+    for (const t of aptDeals) {
+      if (!t.buildingName) continue
+      const pt = aptCoords.get(`서울 ${zone.gu} ${t.dong} ${t.jibun}`)
+      if (!pt) continue
+      const km = roughKm(c, pt)
+      if (km > 1.5) continue
+      const cur = byApt.get(t.buildingName)
+      if (cur) cur.deals.push(t)
+      else byApt.set(t.buildingName, { deals: [t], km })
+    }
+
+    const thisYear = new Date().getFullYear()
+    for (const [name, { deals: ds, km }] of [...byApt.entries()]
+      .sort((a, b) => a[1].km - b[1].km)
+      .slice(0, 6)) {
+      // 전용면적대별 최근 거래 1건씩
+      const byArea = new Map<number, (typeof ds)[number]>()
+      for (const d of ds) {
+        if (!d.exclusiveAr) continue
+        const key = Math.round(d.exclusiveAr)
+        const prev = byArea.get(key)
+        if (!prev || d.dealDate > prev.dealDate) byArea.set(key, d)
+      }
+      const buildYear = ds.find((d) => d.buildYear)?.buildYear ?? null
+      apartments.push({
+        name,
+        buildYear,
+        ageYears: buildYear ? thisYear - buildYear : null,
+        distanceKm: Math.round(km * 10) / 10,
+        areas: [...byArea.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .slice(0, 3)
+          .map(([, d]) => ({
+            pyeong: Math.round((d.exclusiveAr! / 3.3058) * 10) / 10,
+            exclusiveAr: d.exclusiveAr!,
+            price: d.price,
+            dealDate: d.dealDate,
+          })),
+      })
+    }
+  }
+
   /* ── 월별 시계열 (중앙 대지평당가 + 거래량) ── */
   const now = new Date()
   const ymKeys: string[] = []
@@ -132,6 +192,7 @@ export async function GET(request: Request) {
     medianPerPyeong: median(deals.map((d) => d.pricePerLandPyeong ?? NaN)),
     series,
     nearby,
+    apartments,
     unavailable,
     _meta: {
       source: '경계: 서울시 의제처리구역 / 단계: 정비사업 정보몽땅 / 실거래: 국토교통부',
