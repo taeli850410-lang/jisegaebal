@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { queryDevelops, type StoredDevelop } from '@/lib/server/developStore'
+import { fetchParcels, hasVWorld, ringAreaM2 } from '@/lib/server/vworld'
 import { outerRings } from '@/lib/types'
 
 /**
@@ -24,6 +25,8 @@ export interface Parcel {
   ring: [number, number][]
   approvalYear: number | null
   areaM2: number
+  /** 개별공시지가 (원/㎡) — 연속지적도에서만 채워진다 */
+  landPrice?: number | null
   postRightsBaseDate: boolean
 }
 
@@ -116,6 +119,49 @@ export async function GET(request: Request) {
   // 화면 안의 구역만 대상으로 필지를 만든다
   const { develops } = queryDevelops({ bbox, level: 3, limit: 40 })
 
+  /* ── ① V-World 연속지적도 (실데이터) ── */
+  if (hasVWorld()) {
+    // bbox 를 소수 4자리로 눌러 캐시 키를 안정시킨다 (지도를 조금 움직여도 재사용)
+    const k = bbox.map((v) => v.toFixed(4)).join(',')
+    const real = await fetchParcels(bbox, k)
+    if (real?.length) {
+      // 구역 경계 안쪽 필지에만 developId 를 붙인다 — 색칠·집계 대상 구분용
+      const zones = develops.map((d) => ({ id: d.id, rings: outerRings(d.geometry) }))
+      const parcels: Parcel[] = real.map((p) => {
+        let cx = 0
+        let cy = 0
+        for (const [x, y] of p.ring) {
+          cx += x
+          cy += y
+        }
+        cx /= p.ring.length
+        cy /= p.ring.length
+        const hit = zones.find((z) => z.rings.some((r) => pointInRing(cx, cy, r)))
+        return {
+          pnu: p.pnu,
+          developId: hit?.id ?? '',
+          jibun: p.jibun,
+          ring: p.ring,
+          // 사용승인연도는 건축물대장이 있어야 안다. 아직 안 붙였으므로 비운다.
+          approvalYear: null,
+          areaM2: Math.round(ringAreaM2(p.ring)),
+          landPrice: p.jiga,
+          postRightsBaseDate: false,
+        }
+      })
+      return NextResponse.json({
+        parcels,
+        count: parcels.length,
+        _meta: {
+          source: '필지: 국토교통부 연속지적도(V-World WFS) / 구역: 서울시 의제처리구역',
+          grade: 'A',
+          note: '공시지가는 연속지적도에 포함된 개별공시지가(원/㎡)입니다. 사용승인연도(노후도)는 아직 연동되지 않았습니다.',
+        },
+      })
+    }
+  }
+
+  /* ── ② 실패하거나 키가 없으면 목업으로 떨어진다 ── */
   const parcels: Parcel[] = []
   for (const d of develops) {
     for (const p of parcelsFor(d)) {
