@@ -2,19 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadKakaoMaps } from '@/lib/kakaoLoader'
-import { DEVELOPS, TRANSACTION_DOTS, type Develop } from '@/lib/mock/develops'
 import { PROJECT_TYPE_MAP } from '@/lib/taxonomy'
-import { agingColor, centroid, formatKrwEok } from '@/lib/geo'
+import { agingColor } from '@/lib/geo'
+import { outerRings, type ApiDevelop, type DevelopsResponse } from '@/lib/types'
 import type { Parcel } from '@/app/api/parcels/route'
 import FilterBar from './FilterBar'
 import { LayerToggles, ToolPanel, type LayerState, type ToolState } from './MapToolbar'
 import DevelopPanel from './DevelopPanel'
 import Sidebar from './Sidebar'
 
-const INITIAL_CENTER = { lat: 37.4805, lng: 126.9762 }
-const INITIAL_LEVEL = 5
+const INITIAL_CENTER = { lat: 37.5502, lng: 126.9908 } // 서울 중심
+const INITIAL_LEVEL = 8
 /** 이 레벨보다 확대해야 필지를 그린다 (카카오는 숫자가 작을수록 확대) */
 const PARCEL_MAX_LEVEL = 4
+/** 라벨이 너무 많으면 DOM이 폭발하므로 이 개수 이하일 때만 표시 */
+const LABEL_MAX_COUNT = 70
 
 export default function MapView() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -23,16 +25,16 @@ export default function MapView() {
   const mapRef = useRef<any>(null)
   const polygonsRef = useRef<any[]>([])
   const labelsRef = useRef<any[]>([])
-  const clustererRef = useRef<any>(null)
   const parcelPolysRef = useRef<any[]>([])
   const roadviewOverlayRef = useRef<any>(null)
-  const roadviewRef2 = useRef<any>(null)
+  const roadviewInstanceRef = useRef<any>(null)
   const rulerRef = useRef<{ points: any[]; line: any | null; dots: any[] }>({
     points: [],
     line: null,
     dots: [],
   })
   const drawingRef = useRef<any>(null)
+  const fetchSeqRef = useRef(0)
 
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -43,16 +45,20 @@ export default function MapView() {
     message: string
     misregistered?: string[]
   } | null>(null)
+
   const [level, setLevel] = useState(INITIAL_LEVEL)
+  const [develops, setDevelops] = useState<ApiDevelop[]>([])
+  const [totalInView, setTotalInView] = useState(0)
+  const [truncated, setTruncated] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [parcelCount, setParcelCount] = useState(0)
   const [rulerDistance, setRulerDistance] = useState<number | null>(null)
   const [virtualZone, setVirtualZone] = useState<{ area: number; points: number } | null>(null)
-  const [selected, setSelected] = useState<Develop | null>(null)
+  const [selected, setSelected] = useState<ApiDevelop | null>(null)
 
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
-  const [selectedStages, setSelectedStages] = useState<Set<string>>(new Set())
   const [layers, setLayers] = useState<LayerState>({
-    transactions: true,
+    transactions: false,
     listings: false,
     auctions: false,
     apartments: false,
@@ -76,7 +82,7 @@ export default function MapView() {
         if (cancelled || !containerRef.current) return
         // StrictMode는 이 이펙트를 두 번 실행한다. SDK가 이미 로드돼 있으면
         // 첫 실행의 Promise가 cleanup보다 먼저 resolve되어 지도가 중복 생성되고,
-        // 버려진 지도가 계속 이벤트를 발생시켜 레벨 상태를 되돌린다.
+        // 버려진 지도가 계속 이벤트를 발생시켜 상태를 되돌린다.
         if (mapRef.current) return
 
         const map = new kakao.maps.Map(containerRef.current, {
@@ -85,7 +91,6 @@ export default function MapView() {
         })
         mapRef.current = map
 
-        // zoom_changed 단독으로는 애니메이션 줌에서 누락되는 경우가 있어 idle에도 물린다
         const syncLevel = () => setLevel(map.getLevel())
         kakao.maps.event.addListener(map, 'zoom_changed', syncLevel)
         kakao.maps.event.addListener(map, 'idle', syncLevel)
@@ -95,7 +100,6 @@ export default function MapView() {
       .catch((e: Error) => {
         if (cancelled) return
         setError(e.message)
-        // 실패 원인을 서버가 대신 물어본다 (브라우저는 script 오류 본문을 못 읽는다)
         fetch('/api/diag/kakao')
           .then((r) => r.json())
           .then((d) => !cancelled && setDiag(d))
@@ -107,101 +111,103 @@ export default function MapView() {
     }
   }, [])
 
-  /* ─────────────── 2. 구역 폴리곤 렌더 ─────────────── */
-  const visibleDevelops = DEVELOPS.filter(
-    (d) =>
-      (selectedTypes.size === 0 || selectedTypes.has(d.projectType)) &&
-      (selectedStages.size === 0 || selectedStages.has(d.stage)),
-  )
+  /* ─────────────── 2. 뷰포트 구역 조회 ─────────────── */
+  const fetchDevelops = useCallback(async () => {
+    const map = mapRef.current
+    if (!map) return
+
+    const b = map.getBounds()
+    const sw = b.getSouthWest()
+    const ne = b.getNorthEast()
+    const bbox = [sw.getLng(), sw.getLat(), ne.getLng(), ne.getLat()].join(',')
+    const types = [...selectedTypes].join(',')
+
+    const seq = ++fetchSeqRef.current
+    setLoading(true)
+    try {
+      const res = await fetch(
+        `/api/develops?bbox=${bbox}&level=${map.getLevel()}${types ? `&types=${types}` : ''}`,
+      )
+      const data: DevelopsResponse = await res.json()
+      // 늦게 도착한 이전 요청이 최신 결과를 덮어쓰지 않도록 한다
+      if (seq !== fetchSeqRef.current) return
+      setDevelops(data.develops ?? [])
+      setTotalInView(data.total ?? 0)
+      setTruncated(!!data.truncated)
+    } catch {
+      /* 무시 */
+    } finally {
+      if (seq === fetchSeqRef.current) setLoading(false)
+    }
+  }, [selectedTypes])
 
   useEffect(() => {
     if (!ready) return
     const kakao = window.kakao
     const map = mapRef.current
+    fetchDevelops()
+    const handler = () => fetchDevelops()
+    kakao.maps.event.addListener(map, 'idle', handler)
+    return () => kakao.maps.event.removeListener(map, 'idle', handler)
+  }, [ready, fetchDevelops])
 
-    // 기존 오버레이 정리
+  /* ─────────────── 3. 구역 폴리곤 렌더 ─────────────── */
+  useEffect(() => {
+    if (!ready) return
+    const kakao = window.kakao
+    const map = mapRef.current
+
     polygonsRef.current.forEach((p) => p.setMap(null))
     labelsRef.current.forEach((l) => l.setMap(null))
     polygonsRef.current = []
     labelsRef.current = []
 
-    visibleDevelops.forEach((d) => {
+    const showLabels = develops.length <= LABEL_MAX_COUNT
+
+    develops.forEach((d) => {
       const type = PROJECT_TYPE_MAP.get(d.projectType)
       const color = type?.color ?? '#666'
-      const path = d.ring.map(([lng, lat]) => new kakao.maps.LatLng(lat, lng))
 
-      const polygon = new kakao.maps.Polygon({
-        map,
-        path,
-        strokeWeight: 2,
-        strokeColor: color,
-        strokeOpacity: 0.95,
-        strokeStyle: 'solid',
-        fillColor: color,
-        fillOpacity: 0.18,
+      outerRings(d.geometry).forEach((ring) => {
+        const path = ring.map(([lng, lat]) => new kakao.maps.LatLng(lat, lng))
+        const polygon = new kakao.maps.Polygon({
+          map,
+          path,
+          strokeWeight: 2,
+          strokeColor: color,
+          strokeOpacity: 0.9,
+          strokeStyle: 'solid',
+          fillColor: color,
+          fillOpacity: 0.18,
+        })
+        kakao.maps.event.addListener(polygon, 'mouseover', () =>
+          polygon.setOptions({ fillOpacity: 0.36 }),
+        )
+        kakao.maps.event.addListener(polygon, 'mouseout', () =>
+          polygon.setOptions({ fillOpacity: 0.18 }),
+        )
+        kakao.maps.event.addListener(polygon, 'click', () => setSelected(d))
+        polygonsRef.current.push(polygon)
       })
 
-      kakao.maps.event.addListener(polygon, 'mouseover', () => polygon.setOptions({ fillOpacity: 0.34 }))
-      kakao.maps.event.addListener(polygon, 'mouseout', () => polygon.setOptions({ fillOpacity: 0.18 }))
-      kakao.maps.event.addListener(polygon, 'click', () => setSelected(d))
-
-      const [cLng, cLat] = centroid(d.ring)
-      const label = new kakao.maps.CustomOverlay({
-        map,
-        position: new kakao.maps.LatLng(cLat, cLng),
-        yAnchor: 0.5,
-        clickable: false,
-        content: `<div class="develop-label">
-            <div class="develop-label__name" style="background:${color}">${d.name}</div><br/>
-            <div class="develop-label__stage">${d.stageRaw}</div>
-          </div>`,
-      })
-
-      polygonsRef.current.push(polygon)
-      labelsRef.current.push(label)
+      if (showLabels) {
+        const [minLng, minLat, maxLng, maxLat] = d.bbox
+        const label = new kakao.maps.CustomOverlay({
+          map,
+          position: new kakao.maps.LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2),
+          yAnchor: 0.5,
+          clickable: false,
+          content: `<div class="develop-label">
+              <div class="develop-label__name" style="background:${color}">${d.name}</div><br/>
+              <div class="develop-label__stage">${d.rawLabel}</div>
+            </div>`,
+        })
+        labelsRef.current.push(label)
+      }
     })
-    // visibleDevelops는 파생값이라 의존성에 원본 상태를 넣는다
-  }, [ready, selectedTypes, selectedStages])
+  }, [ready, develops])
 
-  /* ─────────────── 3. 실거래 도트 + 클러스터러 ─────────────── */
-  useEffect(() => {
-    if (!ready) return
-    const kakao = window.kakao
-    const map = mapRef.current
-
-    if (clustererRef.current) {
-      clustererRef.current.clear()
-      clustererRef.current.setMap(null)
-      clustererRef.current = null
-    }
-    if (!layers.transactions) return
-
-    const visibleIds = new Set(visibleDevelops.map((d) => d.id))
-    const markers = TRANSACTION_DOTS.filter((t) => visibleIds.has(t.developId)).map((t) => {
-      const marker = new kakao.maps.Marker({
-        position: new kakao.maps.LatLng(t.lat, t.lng),
-        title: `${t.type} ${formatKrwEok(t.price)}`,
-      })
-      const info = new kakao.maps.InfoWindow({
-        content: `<div style="padding:6px 10px;font-size:12px;white-space:nowrap">
-            <b>${t.type}</b> · ${t.dealDate}<br/>
-            ${formatKrwEok(t.price)} · 대지 ${t.landSharePyeong}평
-          </div>`,
-      })
-      kakao.maps.event.addListener(marker, 'click', () => info.open(map, marker))
-      return marker
-    })
-
-    clustererRef.current = new kakao.maps.MarkerClusterer({
-      map,
-      averageCenter: true,
-      minLevel: 4,
-      gridSize: 60,
-      markers,
-    })
-  }, [ready, layers.transactions, selectedTypes, selectedStages])
-
-  /* ─────────────── 4. 필지(지적도·노후도) — 벡터 렌더 ─────────────── */
+  /* ─────────────── 4. 필지(지적도·노후도) ─────────────── */
   const drawParcels = useCallback(async () => {
     if (!ready) return
     const kakao = window.kakao
@@ -235,24 +241,20 @@ export default function MapView() {
           fillColor: fill,
           fillOpacity: tools.aging && p.approvalYear ? 0.55 : 0,
         })
-
         kakao.maps.event.addListener(poly, 'click', () => {
           new kakao.maps.InfoWindow({
             content: `<div style="padding:8px 10px;font-size:12px;white-space:nowrap">
-                <b>${p.jibun}</b><br/>
-                PNU ${p.pnu}<br/>
-                사용승인 ${p.approvalYear ?? '나대지'} · ${p.areaM2}㎡
-                ${p.postRightsBaseDate ? '<br/><span style="color:#DC2626">🚨 권리산정기준일 이후 신축</span>' : ''}
+                <b>${p.jibun}</b><br/>사용승인 ${p.approvalYear ?? '나대지'} · ${p.areaM2}㎡
+                <br/><span style="color:#999">필지는 목업 데이터입니다</span>
               </div>`,
             position: new kakao.maps.LatLng(p.ring[0][1], p.ring[0][0]),
           }).open(map)
         })
-
         parcelPolysRef.current.push(poly)
       })
       setParcelCount(data.parcels.length)
     } catch {
-      /* 목업 단계에서는 조용히 무시 */
+      /* 무시 */
     }
   }, [ready, tools.cadastral, tools.aging])
 
@@ -266,7 +268,7 @@ export default function MapView() {
     return () => kakao.maps.event.removeListener(map, 'idle', handler)
   }, [ready, drawParcels])
 
-  /* ─────────────── 5. 위성뷰 / 용도(USE_DISTRICT) ─────────────── */
+  /* ─────────────── 5. 위성뷰 / 용도 ─────────────── */
   useEffect(() => {
     if (!ready) return
     const kakao = window.kakao
@@ -295,7 +297,6 @@ export default function MapView() {
       return
     }
 
-    // 로드뷰가 존재하는 도로를 지도 위에 표시
     roadviewOverlayRef.current = new kakao.maps.RoadviewOverlay()
     roadviewOverlayRef.current.setMap(map)
 
@@ -303,10 +304,10 @@ export default function MapView() {
     const onClick = (e: any) => {
       client.getNearestPanoId(e.latLng, 50, (panoId: number | null) => {
         if (!panoId || !roadviewRef.current) return
-        if (!roadviewRef2.current) {
-          roadviewRef2.current = new kakao.maps.Roadview(roadviewRef.current)
+        if (!roadviewInstanceRef.current) {
+          roadviewInstanceRef.current = new kakao.maps.Roadview(roadviewRef.current)
         }
-        roadviewRef2.current.setPanoId(panoId, e.latLng)
+        roadviewInstanceRef.current.setPanoId(panoId, e.latLng)
       })
     }
     kakao.maps.event.addListener(map, 'click', onClick)
@@ -334,10 +335,7 @@ export default function MapView() {
     const onClick = (e: any) => {
       const r = rulerRef.current
       r.points.push(e.latLng)
-
-      const marker = new kakao.maps.Marker({ map, position: e.latLng })
-      r.dots.push(marker)
-
+      r.dots.push(new kakao.maps.Marker({ map, position: e.latLng }))
       r.line?.setMap(null)
       r.line = new kakao.maps.Polyline({
         map,
@@ -388,7 +386,6 @@ export default function MapView() {
       const path: any[] = e.target.getPath()
       const poly = new kakao.maps.Polygon({ path })
       setVirtualZone({ area: Math.round(poly.getArea()), points: path.length })
-      // 실제 서비스: POST /api/v1/virtual-develops → PostGIS ST_Intersects 로 내부 통계 산출
     })
 
     manager.select(kakao.maps.drawing.OverlayType.POLYGON)
@@ -400,10 +397,11 @@ export default function MapView() {
   }, [ready, tools.drawing])
 
   /* ─────────────── 핸들러 ─────────────── */
-  const toggleSet = (setter: typeof setSelectedTypes) => (code: string) =>
-    setter((prev) => {
+  const toggleType = (code: string) =>
+    setSelectedTypes((prev) => {
       const next = new Set(prev)
-      next.has(code) ? next.delete(code) : next.add(code)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
       return next
     })
 
@@ -411,7 +409,21 @@ export default function MapView() {
   const zoomBy = (delta: number) => {
     const map = mapRef.current
     if (!map) return
+    // setLevel에 { animate: true }를 주면 zoom_changed/idle 이벤트가 발생하지 않아
+    // 레벨 상태가 갱신되지 않고 연속 클릭 시 값이 고착된다. 애니메이션 없이 호출한다.
     map.setLevel(Math.min(14, Math.max(1, map.getLevel() + delta)))
+  }
+
+  const focusDevelop = (d: ApiDevelop) => {
+    setSelected(d)
+    const map = mapRef.current
+    if (!map) return
+    const kakao = window.kakao
+    const bounds = new kakao.maps.LatLngBounds(
+      new kakao.maps.LatLng(d.bbox[1], d.bbox[0]),
+      new kakao.maps.LatLng(d.bbox[3], d.bbox[2]),
+    )
+    map.setBounds(bounds)
   }
 
   const parcelHint =
@@ -419,14 +431,22 @@ export default function MapView() {
       ? `지적·노후도는 확대해야 표시됩니다 (현재 레벨 ${level} → ${PARCEL_MAX_LEVEL} 이하)`
       : null
 
+  const unavailableLayer =
+    layers.transactions || layers.listings || layers.auctions || layers.apartments
+
   return (
     <div className="flex h-full">
-      <Sidebar develops={visibleDevelops} onSelect={setSelected} />
+      <Sidebar
+        develops={develops}
+        total={totalInView}
+        truncated={truncated}
+        loading={loading}
+        onSelect={focusDevelop}
+      />
 
       <main className="relative flex-1">
         <div ref={containerRef} className="h-full w-full bg-gray-100" />
 
-        {/* SDK 로드 실패 — 서버 진단 결과로 정확한 원인과 해결법을 안내한다 */}
         {error && (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/95 p-8">
             <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-lg">
@@ -438,7 +458,6 @@ export default function MapView() {
                     코드 문제가 아닙니다. 카카오가 <b>도메인 미등록</b>을 이유로 SDK 배포를
                     거부했습니다.
                   </p>
-
                   <pre className="mt-3 overflow-x-auto rounded-lg bg-gray-900 px-3 py-2 text-[11px] leading-relaxed text-red-300">
                     {diag.message}
                   </pre>
@@ -458,11 +477,6 @@ export default function MapView() {
                           ❌ {diag.origin} <span className="font-sans">— 미등록</span>
                         </li>
                       </ul>
-                      <p className="mt-2 text-[12px] leading-relaxed text-amber-900/80">
-                        카카오 Web 플랫폼 도메인은 <b>소스코드 보관처</b>가 아니라{' '}
-                        <b>앱이 브라우저에서 실제로 열리는 주소</b>를 적는 칸입니다. github.com을
-                        등록해도 효과가 없습니다.
-                      </p>
                     </div>
                   )}
 
@@ -506,21 +520,10 @@ export default function MapView() {
                   >
                     등록했습니다 — 다시 확인
                   </button>
-
-                  <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
-                    JavaScript 키는 브라우저에 노출되는 것이 정상이며, 도메인 등록이 유일한 보호
-                    장치입니다. 등록하지 않으면 제3자가 키를 가져다 일일 쿼터(30만 건)를 소진시킬 수
-                    있습니다.
-                  </p>
                 </>
               ) : (
                 <>
                   <p className="mt-2 text-sm text-red-600">{diag?.message ?? error}</p>
-                  {diag && (
-                    <p className="mt-2 text-xs text-gray-400">
-                      진단 코드: {diag.code} · origin {diag.origin}
-                    </p>
-                  )}
                   <button
                     onClick={() => window.location.reload()}
                     className="mt-4 w-full rounded-lg bg-gray-900 py-2.5 text-sm font-bold text-white hover:bg-gray-800"
@@ -535,37 +538,36 @@ export default function MapView() {
 
         <FilterBar
           selectedTypes={selectedTypes}
-          selectedStages={selectedStages}
-          onToggleType={toggleSet(setSelectedTypes)}
-          onToggleStage={toggleSet(setSelectedStages)}
-          onReset={() => {
-            setSelectedTypes(new Set())
-            setSelectedStages(new Set())
-          }}
+          onToggleType={toggleType}
+          onReset={() => setSelectedTypes(new Set())}
         />
 
-        <LayerToggles
-          layers={layers}
-          onToggle={(k) => setLayers((p) => ({ ...p, [k]: !p[k] }))}
-        />
-
+        <LayerToggles layers={layers} onToggle={(k) => setLayers((p) => ({ ...p, [k]: !p[k] }))} />
         <ToolPanel tools={tools} onToggle={(k) => setTools((p) => ({ ...p, [k]: !p[k] }))} />
 
         {/* 상태 표시 */}
-        <div className="absolute bottom-3 left-3 z-20 space-y-1.5">
+        <div className="absolute bottom-3 left-3 z-20 max-w-sm space-y-1.5">
           <div className="rounded-lg border border-gray-200 bg-white/95 px-3 py-1.5 text-xs text-gray-600 shadow-sm">
-            구역 <b className="text-gray-900">{visibleDevelops.length}</b>개 · 레벨{' '}
-            <b className="text-gray-900">{level}</b>
+            구역 <b className="text-gray-900">{totalInView.toLocaleString()}</b>개
+            {truncated && <span className="text-amber-600"> (상위 {develops.length} 표시)</span>} ·
+            레벨 <b className="text-gray-900">{level}</b>
             {parcelCount > 0 && (
               <>
                 {' '}
                 · 필지 <b className="text-gray-900">{parcelCount}</b>
               </>
             )}
+            {loading && <span className="text-gray-400"> · 불러오는 중…</span>}
           </div>
+
           {parcelHint && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 shadow-sm">
               {parcelHint}
+            </div>
+          )}
+          {unavailableLayer && (
+            <div className="rounded-lg border border-gray-200 bg-white/95 px-3 py-1.5 text-xs text-gray-600 shadow-sm">
+              실거래·매물·경매·단지는 아직 <b>미연동</b>입니다 (국토부 실거래 API 등 연동 필요)
             </div>
           )}
           {rulerDistance !== null && (
@@ -598,14 +600,8 @@ export default function MapView() {
           )}
         </div>
 
-        {/* 확대 / 축소 / 내 위치 — 우하단 고정.
-            우상단 도구 패널과 세로로 겹치지 않도록 반대편 모서리에 둔다. */}
+        {/* 확대 / 축소 / 내 위치 — 우상단 도구 패널과 반대편 모서리 */}
         <div className="absolute right-3 bottom-3 z-20 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          {/*
-            주의: setLevel에 { animate: true }를 주면 zoom_changed/idle 이벤트가
-            발생하지 않아 레벨 상태가 갱신되지 않고, 연속 클릭 시 값이 고착된다.
-            애니메이션 없이 호출한다.
-          */}
           <button
             aria-label="확대"
             onClick={() => zoomBy(-1)}
@@ -635,7 +631,6 @@ export default function MapView() {
           </button>
         </div>
 
-        {/* 거리뷰 패널 */}
         <div
           ref={roadviewRef}
           className={`absolute right-16 bottom-3 z-20 h-52 w-80 overflow-hidden rounded-xl border border-gray-200 shadow-lg ${

@@ -23,7 +23,7 @@ Thumbs.db
 .idea/
 .vscode/
 
-# 데이터 작업물 (원본 대장·지적 파일은 저장소에 넣지 않음)
+# 변환 원본(대용량) — scripts/convert-shp.mjs 로 재생성 가능
 data/raw/
 *.shp
 *.dbf

@@ -1,19 +1,23 @@
 'use client'
 
-import type { Develop } from '@/lib/mock/develops'
 import { PROJECT_TYPE_MAP } from '@/lib/taxonomy'
-import { formatPerPyeong } from '@/lib/geo'
+import type { ApiDevelop } from '@/lib/types'
 
 export default function Sidebar({
   develops,
+  total,
+  truncated,
+  loading,
   onSelect,
 }: {
-  develops: Develop[]
-  onSelect: (d: Develop) => void
+  develops: ApiDevelop[]
+  total: number
+  truncated: boolean
+  loading: boolean
+  onSelect: (d: ApiDevelop) => void
 }) {
   return (
     <aside className="flex w-[340px] shrink-0 flex-col border-r border-gray-200 bg-white">
-      {/* 헤더 */}
       <div className="border-b border-gray-100 px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded bg-indigo-900 text-sm font-black text-white">
@@ -30,7 +34,6 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* 퀵메뉴 */}
       <div className="grid grid-cols-6 gap-1 border-b border-gray-100 px-2 py-2.5 text-center">
         {[
           ['🔥', '인기'],
@@ -47,16 +50,25 @@ export default function Sidebar({
         ))}
       </div>
 
-      {/* 구역 리스트 */}
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
-        <h2 className="text-sm font-bold">구역 목록</h2>
-        <span className="text-xs text-gray-400">{develops.length}개</span>
+        <h2 className="text-sm font-bold">화면 안의 구역</h2>
+        <span className="text-xs text-gray-400">
+          {loading ? '불러오는 중…' : `${total.toLocaleString()}개`}
+        </span>
       </div>
 
+      {truncated && (
+        <p className="mx-3 mb-1 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+          구역이 많아 면적이 큰 순으로 {develops.length}개만 표시합니다. 지도를 확대해 보세요.
+        </p>
+      )}
+
       <div className="thin-scroll flex-1 overflow-y-auto px-2 pb-4">
-        {develops.length === 0 && (
+        {!loading && develops.length === 0 && (
           <p className="px-2 py-8 text-center text-sm text-gray-400">
-            조건에 맞는 구역이 없습니다.
+            이 화면에는 정비구역이 없습니다.
+            <br />
+            지도를 이동하거나 축소해 보세요.
           </p>
         )}
         {develops.map((d) => {
@@ -69,30 +81,26 @@ export default function Sidebar({
             >
               <div className="flex items-center gap-1.5">
                 <span
-                  className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white"
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold text-white"
                   style={{ background: type?.color }}
                 >
                   {type?.label}
                 </span>
-                <span className="text-sm font-bold">{d.name}</span>
+                <span className="truncate text-sm font-bold">{d.name}</span>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                {d.stageRaw} · 노후도 {d.stats.agingNow}%
+              <p className="mt-1 text-xs text-gray-500">{d.rawLabel}</p>
+              <p className="mt-1 text-xs text-gray-400">
+                면적 {d.areaM2.toLocaleString()}㎡
+                {d.areaM2 > 0 && ` (${Math.round(d.areaM2 / 3.3058).toLocaleString()}평)`}
               </p>
-              <div className="mt-1.5 flex items-center gap-3 text-xs">
-                <span className="font-semibold text-indigo-700">
-                  {formatPerPyeong(d.stats.landPricePerPyeong)}
-                </span>
-                <span className="text-gray-400">매물 {d.stats.listingCount}</span>
-                <span className="text-gray-400">경매 {d.stats.auctionCount}</span>
-              </div>
             </button>
           )
         })}
       </div>
 
       <p className="border-t border-gray-100 px-4 py-2.5 text-[10px] leading-relaxed text-gray-400">
-        목업 데이터입니다. 실제 서비스는 PostGIS bbox 쿼리로 구역을 내려받습니다.
+        출처: 서울 열린데이터광장 「서울시 의제처리구역 위치정보」 (공공누리 1유형).
+        구역 경계는 참고자료이며 법적 효력이 없습니다.
       </p>
     </aside>
   )
