@@ -36,6 +36,12 @@ export default function MapView() {
 
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [diag, setDiag] = useState<{
+    ok: boolean
+    code: string
+    origin: string
+    message: string
+  } | null>(null)
   const [level, setLevel] = useState(INITIAL_LEVEL)
   const [parcelCount, setParcelCount] = useState(0)
   const [rulerDistance, setRulerDistance] = useState<number | null>(null)
@@ -77,7 +83,15 @@ export default function MapView() {
         kakao.maps.event.addListener(map, 'zoom_changed', () => setLevel(map.getLevel()))
         setReady(true)
       })
-      .catch((e: Error) => !cancelled && setError(e.message))
+      .catch((e: Error) => {
+        if (cancelled) return
+        setError(e.message)
+        // 실패 원인을 서버가 대신 물어본다 (브라우저는 script 오류 본문을 못 읽는다)
+        fetch('/api/diag/kakao')
+          .then((r) => r.json())
+          .then((d) => !cancelled && setDiag(d))
+          .catch(() => {})
+      })
 
     return () => {
       cancelled = true
@@ -396,19 +410,86 @@ export default function MapView() {
       <main className="relative flex-1">
         <div ref={containerRef} className="h-full w-full bg-gray-100" />
 
-        {/* SDK 로드 실패 */}
+        {/* SDK 로드 실패 — 서버 진단 결과로 정확한 원인과 해결법을 안내한다 */}
         {error && (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/95 p-8">
-            <div className="max-w-md rounded-xl border border-red-200 bg-red-50 p-5 text-sm">
-              <p className="mb-2 font-bold text-red-700">카카오맵을 불러오지 못했습니다</p>
-              <p className="text-red-600">{error}</p>
-              <ul className="mt-3 list-disc space-y-1 pl-4 text-red-500">
-                <li>.env.local의 NEXT_PUBLIC_KAKAO_MAP_JS_KEY 확인</li>
-                <li>
-                  카카오 개발자 콘솔 &gt; 내 애플리케이션 &gt; 플랫폼 &gt; Web 에{' '}
-                  <code className="rounded bg-white px-1">http://localhost:3000</code> 등록
-                </li>
-              </ul>
+            <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-lg">
+              <p className="text-base font-bold text-gray-900">지도를 불러오지 못했습니다</p>
+
+              {diag?.code === 'DOMAIN_NOT_REGISTERED' ? (
+                <>
+                  <p className="mt-1 text-sm text-gray-500">
+                    코드 문제가 아닙니다. 카카오가 <b>도메인 미등록</b>을 이유로 SDK 배포를
+                    거부했습니다.
+                  </p>
+
+                  <pre className="mt-3 overflow-x-auto rounded-lg bg-gray-900 px-3 py-2 text-[11px] leading-relaxed text-red-300">
+                    {diag.message}
+                  </pre>
+
+                  <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+                    <p className="text-sm font-bold text-indigo-900">해결 방법 (2분)</p>
+                    <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-sm text-indigo-900/90">
+                      <li>
+                        <a
+                          href="https://developers.kakao.com/console/app"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold underline"
+                        >
+                          카카오 개발자 콘솔
+                        </a>{' '}
+                        접속 후 해당 앱 선택
+                      </li>
+                      <li>
+                        좌측 <b>앱 설정 &gt; 플랫폼</b> → <b>Web 플랫폼 등록</b>
+                      </li>
+                      <li>
+                        사이트 도메인에 아래 값을 <b>그대로</b> 입력 후 저장
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <code className="flex-1 rounded-lg bg-white px-2.5 py-1.5 font-mono text-[13px] text-indigo-700 ring-1 ring-indigo-200">
+                            {diag.origin}
+                          </code>
+                          <button
+                            onClick={() => navigator.clipboard?.writeText(diag.origin)}
+                            className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                          >
+                            복사
+                          </button>
+                        </div>
+                      </li>
+                    </ol>
+                  </div>
+
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="mt-4 w-full rounded-lg bg-gray-900 py-2.5 text-sm font-bold text-white hover:bg-gray-800"
+                  >
+                    등록했습니다 — 다시 확인
+                  </button>
+
+                  <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
+                    JavaScript 키는 브라우저에 노출되는 것이 정상이며, 도메인 등록이 유일한 보호
+                    장치입니다. 등록하지 않으면 제3자가 키를 가져다 일일 쿼터(30만 건)를 소진시킬 수
+                    있습니다.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm text-red-600">{diag?.message ?? error}</p>
+                  {diag && (
+                    <p className="mt-2 text-xs text-gray-400">
+                      진단 코드: {diag.code} · origin {diag.origin}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="mt-4 w-full rounded-lg bg-gray-900 py-2.5 text-sm font-bold text-white hover:bg-gray-800"
+                  >
+                    다시 확인
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
