@@ -35,6 +35,9 @@ export interface StoredDevelop {
   noticeDate?: string | null
   center?: [number, number]
 
+  /* ── 정비몽땅 사업개요에서 오는 제원 (scripts/merge-summary.mjs) ── */
+  summary?: ZoneSummary
+
   /* ── 정비몽땅 매칭으로 채워지는 항목 (미매칭 구역은 비어 있다) ── */
   stage?: string
   canonicalStage?: string | null
@@ -42,6 +45,33 @@ export interface StoredDevelop {
   stageBizType?: string
   stageMatchBy?: StageRecord['matchBy']
   gu?: string
+}
+
+/**
+ * 정비몽땅 사업개요에서 가져온 구역 제원.
+ * 고시문 HWP 파싱 대신 이 경로를 쓴다 — 서버 HTML 이라 훨씬 안정적이다.
+ */
+export interface ZoneSummary {
+  cafeUrl: string
+  siteName: string
+  zoneName: string | null
+  address: string | null
+  areaM2: number | null
+  memberCount: number | null
+  landOwnerCount: number | null
+  tenantCount: number | null
+  useZone: string | null
+  useDistrict: string | null
+  siteAreaM2: number | null
+  buildingAreaM2: number | null
+  totalFloorAreaM2: number | null
+  bcr: number | null
+  far: number | null
+  floors: string | null
+  landUseHousing: number | null
+  landUseRoad: number | null
+  landUsePark: number | null
+  landUseGreen: number | null
 }
 
 /** 정비몽땅에서 붙인 진행단계 (scripts/build-stages.mjs 산출물) */
@@ -75,9 +105,12 @@ export function getAllDevelops(): StoredDevelop[] {
 
   const base = readJson<StoredDevelop[]>('data', 'develops.seoul.json') ?? []
   const stages = readJson<StageRecord[]>('data', 'stages.seoul.json') ?? []
+  const summaries = readJson<Record<string, ZoneSummary>>('data', 'zone-summary.json') ?? {}
   const byId = new Map(stages.map((s) => [s.developId, s]))
 
   cache = base.map((d) => {
+    const summary = summaries[d.id]
+    if (summary) d = { ...d, summary }
     const s = byId.get(d.id)
     // gu는 enrich 단계에서 이미 채워져 있다. 정비몽땅 값으로 덮어쓰지 않는다.
     return s

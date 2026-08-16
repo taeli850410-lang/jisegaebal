@@ -56,8 +56,33 @@ interface Nearby {
   bbox: [number, number, number, number]
 }
 
+/** 정비몽땅 사업개요 제원 */
+interface ZoneSummary {
+  siteName: string
+  address: string | null
+  areaM2: number | null
+  memberCount: number | null
+  landOwnerCount: number | null
+  tenantCount: number | null
+  useZone: string | null
+  useDistrict: string | null
+  siteAreaM2: number | null
+  totalFloorAreaM2: number | null
+  bcr: number | null
+  far: number | null
+  floors: string | null
+  landUseHousing: number | null
+  landUseRoad: number | null
+  landUsePark: number | null
+  landUseGreen: number | null
+}
+
 interface FullData {
-  zone: ApiDevelop & { dong: string | null; noticeDate: string | null }
+  zone: ApiDevelop & {
+    dong: string | null
+    noticeDate: string | null
+    summary: ZoneSummary | null
+  }
   deals: Deal[]
   dealCount: number
   medianPerPyeong: number | null
@@ -123,6 +148,7 @@ export default function DevelopPanel({
   const match = z.stageMatchBy ? MATCH_LABEL[z.stageMatchBy] : null
   const sColor = stageColor(z.canonicalStage)
   const pyeong = Math.round(z.areaM2 / 3.3058)
+  const sum = data?.zone.summary ?? null
 
   /**
    * 섹션으로 이동.
@@ -426,13 +452,88 @@ export default function DevelopPanel({
                 )}
               </dl>
 
-              <p className="mt-3 mb-1.5 text-xs font-bold text-gray-500">아직 연동되지 않은 정보</p>
+              {/* 정비몽땅 사업개요 제원 — 있는 구역만 */}
+              {sum && (
+                <>
+                  <h3 className="mt-5 mb-2 text-sm font-bold">
+                    사업 제원
+                    <Grade grade="A" />
+                  </h3>
+                  <dl className="divide-y divide-gray-100 text-sm">
+                    {[
+                      ['정비구역 면적', sum.areaM2 ? `${sum.areaM2.toLocaleString()}㎡` : null],
+                      ['토지등소유자', sum.landOwnerCount ? `${sum.landOwnerCount.toLocaleString()}명` : null],
+                      ['조합원 수', sum.memberCount ? `${sum.memberCount.toLocaleString()}명` : null],
+                      ['세입자 수', sum.tenantCount != null ? `${sum.tenantCount.toLocaleString()}명` : null],
+                      ['용도지역', sum.useZone],
+                      ['용도지구', sum.useDistrict],
+                      ['용적률', sum.far != null ? `${sum.far}%` : null],
+                      ['건폐율', sum.bcr != null ? `${sum.bcr}%` : null],
+                      ['층수', sum.floors],
+                      ['연면적', sum.totalFloorAreaM2 ? `${sum.totalFloorAreaM2.toLocaleString()}㎡` : null],
+                    ]
+                      .filter(([, v]) => v)
+                      .map(([k, v]) => (
+                        <div key={k as string} className="flex items-center justify-between py-2">
+                          <dt className="text-gray-500">{k}</dt>
+                          <dd className="font-semibold">{v}</dd>
+                        </div>
+                      ))}
+                  </dl>
+
+                  {/* 토지이용계획 — 값이 하나라도 있을 때만 */}
+                  {(sum.landUseHousing || sum.landUseRoad || sum.landUsePark || sum.landUseGreen) && (
+                    <>
+                      <h3 className="mt-5 mb-2 text-sm font-bold">토지이용 계획</h3>
+                      <div className="space-y-1.5">
+                        {(
+                          [
+                            ['택지', sum.landUseHousing, '#4F46E5'],
+                            ['도로', sum.landUseRoad, '#9CA3AF'],
+                            ['공원', sum.landUsePark, '#10B981'],
+                            ['녹지', sum.landUseGreen, '#22C55E'],
+                          ] as [string, number | null, string][]
+                        )
+                          .filter(([, v]) => v)
+                          .map(([label, v, color]) => {
+                            const total =
+                              (sum.landUseHousing ?? 0) +
+                              (sum.landUseRoad ?? 0) +
+                              (sum.landUsePark ?? 0) +
+                              (sum.landUseGreen ?? 0)
+                            const pct = total ? Math.round((v! / total) * 100) : 0
+                            return (
+                              <div key={label} className="flex items-center gap-2">
+                                <span className="w-10 shrink-0 text-xs text-gray-500">{label}</span>
+                                <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-100">
+                                  <div
+                                    className="h-full rounded-full"
+                                    style={{ width: `${pct}%`, background: color }}
+                                  />
+                                </div>
+                                <span className="w-24 shrink-0 text-right text-[11px] text-gray-500">
+                                  {v!.toLocaleString()}㎡ ({pct}%)
+                                </span>
+                              </div>
+                            )
+                          })}
+                      </div>
+                    </>
+                  )}
+
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    출처: 서울시 정비사업 정보몽땅 사업개요 · 사업장 「{sum.siteName}」
+                  </p>
+                </>
+              )}
+
+              <p className="mt-5 mb-1.5 text-xs font-bold text-gray-500">아직 연동되지 않은 정보</p>
               <ul className="space-y-1">
                 {[
-                  ['공급 계획 · 건축 계획', '고시문 파싱'],
-                  ['토지등소유자 · 권리산정기준일', '고시문 파싱'],
-                  ['노후도 · 개발여건 · 토지면적 구성', '건축물대장 + 연속지적도'],
-                  ['규제 정보 (토지거래허가 등)', '토지이음'],
+                  ...(sum ? [] : [['사업 제원 (면적·소유자·용적률)', '정비몽땅 사업개요 미등록'] as const]),
+                  ['단계별 인가일', '정비몽땅 추진경과'],
+                  ['권리산정기준일', '고시문 파싱'],
+                  ['노후도 · 개발여건', '건축물대장 + 연속지적도'],
                   ['매물 · 경매 · 인근 아파트', '중개 제휴 / 법원경매 / K-apt'],
                 ].map(([k, src]) => (
                   <li

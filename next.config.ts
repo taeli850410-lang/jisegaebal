@@ -10,14 +10,26 @@ const nextConfig: NextConfig = {
    * 배포 대상 라우트에 명시적으로 포함시킨다.
    */
   outputFileTracingIncludes: {
-    '/api/develops': ['./data/develops.seoul.json', './data/stages.seoul.json'],
-    '/api/develops/browse': ['./data/develops.seoul.json', './data/stages.seoul.json'],
-    '/api/develops/detail': ['./data/develops.seoul.json', './data/stages.seoul.json'],
-    '/api/parcels': ['./data/develops.seoul.json', './data/stages.seoul.json'],
+    '/api/develops': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json'],
+    '/api/develops/browse': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json'],
+    '/api/develops/detail': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json'],
+    '/api/parcels': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json'],
     '/api/zone-transactions': [
       './data/develops.seoul.json',
       './data/stages.seoul.json',
+      './data/zone-summary.json',
       './data/jibun-cache.json',
+    ],
+    '/api/develops/full': [
+      './data/develops.seoul.json',
+      './data/stages.seoul.json',
+      './data/zone-summary.json',
+      './data/jibun-cache.json',
+    ],
+    '/api/search': [
+      './data/develops.seoul.json',
+      './data/stages.seoul.json',
+      './data/zone-summary.json',
     ],
   },
 }
