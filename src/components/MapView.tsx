@@ -74,6 +74,10 @@ export default function MapView() {
     loadKakaoMaps()
       .then((kakao) => {
         if (cancelled || !containerRef.current) return
+        // StrictMode는 이 이펙트를 두 번 실행한다. SDK가 이미 로드돼 있으면
+        // 첫 실행의 Promise가 cleanup보다 먼저 resolve되어 지도가 중복 생성되고,
+        // 버려진 지도가 계속 이벤트를 발생시켜 레벨 상태를 되돌린다.
+        if (mapRef.current) return
 
         const map = new kakao.maps.Map(containerRef.current, {
           center: new kakao.maps.LatLng(INITIAL_CENTER.lat, INITIAL_CENTER.lng),
@@ -81,7 +85,11 @@ export default function MapView() {
         })
         mapRef.current = map
 
-        kakao.maps.event.addListener(map, 'zoom_changed', () => setLevel(map.getLevel()))
+        // zoom_changed 단독으로는 애니메이션 줌에서 누락되는 경우가 있어 idle에도 물린다
+        const syncLevel = () => setLevel(map.getLevel())
+        kakao.maps.event.addListener(map, 'zoom_changed', syncLevel)
+        kakao.maps.event.addListener(map, 'idle', syncLevel)
+        syncLevel()
         setReady(true)
       })
       .catch((e: Error) => {
@@ -399,6 +407,13 @@ export default function MapView() {
       return next
     })
 
+  /** 카카오 레벨 범위는 1(최대 확대)~14 */
+  const zoomBy = (delta: number) => {
+    const map = mapRef.current
+    if (!map) return
+    map.setLevel(Math.min(14, Math.max(1, map.getLevel() + delta)))
+  }
+
   const parcelHint =
     (tools.cadastral || tools.aging) && level > PARCEL_MAX_LEVEL
       ? `지적·노후도는 확대해야 표시됩니다 (현재 레벨 ${level} → ${PARCEL_MAX_LEVEL} 이하)`
@@ -581,6 +596,42 @@ export default function MapView() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* 확대 / 축소 / 내 위치 */}
+        <div className="absolute right-3 bottom-[19rem] z-20 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+          {/*
+            주의: setLevel에 { animate: true }를 주면 zoom_changed/idle 이벤트가
+            발생하지 않아 레벨 상태가 갱신되지 않고, 연속 클릭 시 값이 고착된다.
+            애니메이션 없이 호출한다.
+          */}
+          <button
+            aria-label="확대"
+            onClick={() => zoomBy(-1)}
+            className="h-9 w-9 border-b border-gray-100 text-lg text-gray-600 hover:bg-gray-50"
+          >
+            +
+          </button>
+          <button
+            aria-label="축소"
+            onClick={() => zoomBy(1)}
+            className="h-9 w-9 border-b border-gray-100 text-lg text-gray-600 hover:bg-gray-50"
+          >
+            −
+          </button>
+          <button
+            aria-label="내 위치"
+            onClick={() =>
+              navigator.geolocation?.getCurrentPosition((pos) =>
+                mapRef.current?.panTo(
+                  new window.kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude),
+                ),
+              )
+            }
+            className="h-9 w-9 text-sm text-gray-600 hover:bg-gray-50"
+          >
+            ◎
+          </button>
         </div>
 
         {/* 거리뷰 패널 */}
