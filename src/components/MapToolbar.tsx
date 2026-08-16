@@ -71,13 +71,14 @@ export function ToolPanel({
   onToggle: (key: keyof ToolState) => void
 }) {
   return (
-    <div className="absolute top-3 right-3 z-20 flex flex-col gap-1.5">
+    // 화면이 낮아져도 우하단 확대/축소 컨트롤과 맞닿지 않도록 높이를 제한한다
+    <div className="thin-scroll absolute top-3 right-3 z-20 flex max-h-[calc(100%-10rem)] flex-col gap-1.5 overflow-y-auto">
       {TOOLS.map((t) => (
         <button
           key={t.key}
           onClick={() => onToggle(t.key)}
           title={t.note}
-          className={`h-11 w-12 rounded-lg border text-[11px] leading-tight font-bold whitespace-pre-line shadow-sm transition ${
+          className={`h-11 w-12 shrink-0 rounded-lg border text-[11px] leading-tight font-bold whitespace-pre-line shadow-sm transition ${
             tools[t.key]
               ? 'border-indigo-600 bg-indigo-600 text-white'
               : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'

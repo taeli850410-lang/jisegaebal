@@ -598,8 +598,9 @@ export default function MapView() {
           )}
         </div>
 
-        {/* 확대 / 축소 / 내 위치 */}
-        <div className="absolute right-3 bottom-[19rem] z-20 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+        {/* 확대 / 축소 / 내 위치 — 우하단 고정.
+            우상단 도구 패널과 세로로 겹치지 않도록 반대편 모서리에 둔다. */}
+        <div className="absolute right-3 bottom-3 z-20 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           {/*
             주의: setLevel에 { animate: true }를 주면 zoom_changed/idle 이벤트가
             발생하지 않아 레벨 상태가 갱신되지 않고, 연속 클릭 시 값이 고착된다.
@@ -637,12 +638,12 @@ export default function MapView() {
         {/* 거리뷰 패널 */}
         <div
           ref={roadviewRef}
-          className={`absolute right-3 bottom-3 z-20 h-52 w-80 overflow-hidden rounded-xl border border-gray-200 shadow-lg ${
+          className={`absolute right-16 bottom-3 z-20 h-52 w-80 overflow-hidden rounded-xl border border-gray-200 shadow-lg ${
             tools.roadview ? 'block' : 'hidden'
           }`}
         />
         {tools.roadview && (
-          <p className="absolute right-3 bottom-56 z-20 rounded bg-black/70 px-2 py-1 text-[11px] text-white">
+          <p className="absolute right-16 bottom-56 z-20 rounded bg-black/70 px-2 py-1 text-[11px] text-white">
             파란 선이 있는 도로를 클릭하세요
           </p>
         )}
