@@ -11,7 +11,14 @@ const nextConfig: NextConfig = {
    */
   outputFileTracingIncludes: {
     '/api/develops': ['./data/develops.seoul.json', './data/stages.seoul.json'],
+    '/api/develops/browse': ['./data/develops.seoul.json', './data/stages.seoul.json'],
+    '/api/develops/detail': ['./data/develops.seoul.json', './data/stages.seoul.json'],
     '/api/parcels': ['./data/develops.seoul.json', './data/stages.seoul.json'],
+    '/api/zone-transactions': [
+      './data/develops.seoul.json',
+      './data/stages.seoul.json',
+      './data/jibun-cache.json',
+    ],
   },
 }
 

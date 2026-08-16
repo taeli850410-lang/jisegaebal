@@ -597,6 +597,11 @@ export default function MapView() {
               // 상세는 지도 응답이 오면 폴리곤 클릭 없이도 열리도록 id로 지정한다
               setPendingSelectId(b.id)
             }}
+            onFocus={(bbox, id) => {
+              setPanel(null)
+              focusByBounds(bbox)
+              setPendingSelectId(id)
+            }}
           />
         )}
       </div>
