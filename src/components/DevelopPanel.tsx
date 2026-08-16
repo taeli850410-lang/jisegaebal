@@ -1,6 +1,7 @@
 ﻿'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Image from 'next/image'
 import { PROJECT_TYPE_MAP, STAGES, stageColor } from '@/lib/taxonomy'
 import { resolveStage } from '@/lib/stage'
 import { isFavorite, toggleFavorite } from '@/lib/userStore'
@@ -382,6 +383,17 @@ function StatRows({
 }
 
 const pct = (a: number, b: number) => (b > 0 ? `(${Math.round((a / b) * 100)}%)` : '')
+
+/**
+ * 도면 경로를 URL 세그먼트로 만든다.
+ * 서버의 encodeImagePath 와 같은 규칙 — 여기는 클라이언트라 Buffer 를 못 쓴다.
+ */
+function imageToken(path: string): string {
+  const bytes = new TextEncoder().encode(path)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
 
 /** 면적 항목을 사진처럼 이름 · 막대 · "N㎡ (P%)" 로 늘어놓는다 */
 function AreaBars({
@@ -1096,17 +1108,19 @@ export default function DevelopPanel({
                     .map(([k, label]) => (
                       <a
                         key={k}
-                        href={`/api/cleanup-image?path=${encodeURIComponent(plan.drawings![k]!)}`}
+                        href={`/api/cleanup-image/${imageToken(plan.drawings![k]!)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="group relative block shrink-0"
                       >
-                        {/* 크기가 제각각이라 고정 박스 안에 채워 넣는다 */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={`/api/cleanup-image?path=${encodeURIComponent(plan.drawings![k]!)}`}
+                        {/* 원본이 1~2MB 라 썸네일로 그대로 쓰면 패널 하나에 5MB 가 든다.
+                            next/image 로 리사이즈·webp 변환을 태운다. */}
+                        <Image
+                          src={`/api/cleanup-image/${imageToken(plan.drawings![k]!)}`}
                           alt={label}
-                          loading="lazy"
+                          width={160}
+                          height={112}
+                          unoptimized={false}
                           className="h-28 w-40 rounded-lg border border-gray-200 bg-gray-50 object-cover"
                         />
                         <span className="absolute bottom-1 left-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-bold text-white">
