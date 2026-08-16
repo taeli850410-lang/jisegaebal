@@ -139,6 +139,32 @@ function Empty({ text }: { text: string }) {
   return <p className="px-4 py-10 text-center text-sm text-gray-400">{text}</p>
 }
 
+function formatEok(won: number) {
+  const eok = won / 100_000_000
+  return eok >= 1 ? `${eok.toFixed(eok >= 10 ? 0 : 2)}억` : `${Math.round(won / 10_000).toLocaleString()}만`
+}
+
+function formatMan(won: number) {
+  const eok = won / 100_000_000
+  return eok >= 1 ? `${eok.toFixed(1)}억` : `${Math.round(won / 10_000).toLocaleString()}만`
+}
+
+interface Transaction {
+  kind: string
+  typeLabel: string
+  dealDate: string
+  price: number
+  dong: string
+  jibun: string
+  buildingName: string | null
+  floor: number | null
+  buildYear: number | null
+  exclusiveAr: number | null
+  landPyeong: number | null
+  pricePerLandPyeong: number | null
+  isDirect: boolean
+}
+
 /* ───────────── 본체 ───────────── */
 
 export default function SidePanel({
@@ -156,6 +182,9 @@ export default function SidePanel({
   const [favSort, setFavSort] = useState<'recent' | 'added' | 'name'>('added')
   const [gus, setGus] = useState<{ gu: string; count: number }[]>([])
   const [gu, setGu] = useState('')
+  const [months, setMonths] = useState<1 | 3 | 6>(3)
+  const [tx, setTx] = useState<Transaction[]>([])
+  const [txLoading, setTxLoading] = useState(false)
   const [tick, setTick] = useState(0)
 
   useEffect(() => subscribeStore(() => setTick((t) => t + 1)), [])
@@ -175,6 +204,24 @@ export default function SidePanel({
       .then((j) => setGus(j.gus ?? []))
       .catch(() => {})
   }, [panel, gus.length])
+
+  /* 실거래 조회 — 국토부 API는 응답이 커서 별도 로딩 상태로 관리한다 */
+  useEffect(() => {
+    if (panel !== 'transactions' || !gu) {
+      setTx([])
+      return
+    }
+    let cancelled = false
+    setTxLoading(true)
+    fetch(`/api/transactions?gu=${encodeURIComponent(gu)}&months=${months}`)
+      .then((r) => r.json())
+      .then((j) => !cancelled && setTx(j.items ?? []))
+      .catch(() => !cancelled && setTx([]))
+      .finally(() => !cancelled && setTxLoading(false))
+    return () => {
+      cancelled = true
+    }
+  }, [panel, gu, months])
 
   /* 패널별 데이터 로드 */
   useEffect(() => {
@@ -211,16 +258,6 @@ export default function SidePanel({
             const list = await fetchByIds(top.map((v) => v.id))
             if (!cancelled) setItems(list)
           }
-        } else if (panel === 'transactions') {
-          if (!gu) {
-            if (!cancelled) setItems([])
-          } else {
-            const res = await fetch(
-              `/api/develops/browse?gu=${encodeURIComponent(gu)}&sort=notice&limit=100`,
-            )
-            const json = await res.json()
-            if (!cancelled) setItems(json.items ?? [])
-          }
         } else if (!cancelled) {
           setItems([])
         }
@@ -232,7 +269,7 @@ export default function SidePanel({
     return () => {
       cancelled = true
     }
-  }, [panel, favSort, hotTab, gu, tick, fetchByIds])
+  }, [panel, favSort, hotTab, tick, fetchByIds])
 
   const views = getViews()
 
@@ -324,9 +361,26 @@ export default function SidePanel({
               ))}
             </select>
           </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-amber-700">
-            ⚠️ 실거래가는 아직 미연동입니다. 지금은 선택한 구의 <b>정비구역 목록</b>만 보여줍니다.
-          </p>
+          {gu && (
+            <div className="mt-2 flex items-center justify-between">
+              <div className="flex gap-1">
+                {([1, 3, 6] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setMonths(m)}
+                    className={`rounded-md px-2 py-1 text-[11px] font-bold ${
+                      months === m ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {m}개월
+                  </button>
+                ))}
+              </div>
+              <span className="text-[11px] text-gray-400">
+                {txLoading ? '불러오는 중…' : `${tx.length.toLocaleString()}건`}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -354,8 +408,61 @@ export default function SidePanel({
         {!loading && panel === 'favorites' && items.length === 0 && (
           <Empty text="관심 구역이 없습니다. 구역 상세에서 ♡를 눌러 추가하세요." />
         )}
-        {!loading && panel === 'transactions' && !gu && (
-          <Empty text="구/군을 선택하면 해당 지역 정비구역을 보여줍니다." />
+        {panel === 'transactions' && !gu && (
+          <Empty text="구/군을 선택하면 최근 실거래를 보여줍니다." />
+        )}
+
+        {panel === 'transactions' && gu && (
+          <>
+            {txLoading && <p className="px-4 py-8 text-center text-sm text-gray-400">불러오는 중…</p>}
+            {!txLoading && tx.length === 0 && <Empty text="해당 기간에 신고된 거래가 없습니다." />}
+            {!txLoading &&
+              tx.map((t, i) => (
+                <div key={i} className="border-b border-gray-50 px-4 py-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-600">
+                          {t.typeLabel}
+                        </span>
+                        {t.buildYear && (
+                          <span className="text-[11px] text-gray-400">{t.buildYear}년</span>
+                        )}
+                        {t.isDirect && (
+                          <span className="rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-700">
+                            직
+                          </span>
+                        )}
+                        <span className="text-[11px] text-gray-400">
+                          {t.dealDate.slice(2).replace(/-/g, '.')}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 truncate text-sm font-semibold">
+                        {t.dong} {t.jibun}
+                      </p>
+                      <p className="truncate text-[11px] text-gray-400">
+                        {t.buildingName ?? ''}
+                        {t.floor ? ` ${t.floor}층` : ''}
+                        {t.exclusiveAr
+                          ? ` · 전용 ${(t.exclusiveAr / 3.3058).toFixed(1)}평`
+                          : ''}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-bold">{formatEok(t.price)}</p>
+                      {t.pricePerLandPyeong && (
+                        <p className="text-[11px] font-semibold text-indigo-600">
+                          {formatMan(t.pricePerLandPyeong)}/평
+                        </p>
+                      )}
+                      {t.landPyeong && (
+                        <p className="text-[11px] text-gray-400">대지 {t.landPyeong}평</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </>
         )}
 
         {!loading &&

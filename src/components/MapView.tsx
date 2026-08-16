@@ -75,6 +75,7 @@ export default function MapView() {
   const [panel, setPanel] = useState<PanelKey | null>(null)
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null)
   const [favCount, setFavCount] = useState(0)
+  const [roadviewMiss, setRoadviewMiss] = useState(false)
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
   const [selectedStages, setSelectedStages] = useState<Set<string>>(new Set())
   const [layers, setLayers] = useState<LayerState>({
@@ -240,27 +241,36 @@ export default function MapView() {
 
     develops.forEach((d) => {
       const type = PROJECT_TYPE_MAP.get(d.projectType)
-      const color = type?.color ?? '#666'
+      const typeColor = type?.color ?? '#666'
+      // 폴리곤은 진행단계 색으로 칠한다 (사업종류는 라벨 상단 배지가 담당).
+      // 지도에서 "어디까지 진행됐나"가 한눈에 읽히는 쪽이 훨씬 유용하다.
+      const fill = stageColor(d.canonicalStage)
+      const known = !!d.stage
 
       outerRings(d.geometry).forEach((ring) => {
         const path = ring.map(([lng, lat]) => new kakao.maps.LatLng(lat, lng))
+        const baseOpacity = known ? 0.22 : 0.1
         const polygon = new kakao.maps.Polygon({
           map,
           path,
-          strokeWeight: 2,
-          strokeColor: color,
-          strokeOpacity: 0.9,
-          strokeStyle: 'solid',
-          fillColor: color,
-          fillOpacity: 0.18,
+          strokeWeight: known ? 2 : 1.5,
+          strokeColor: fill,
+          strokeOpacity: known ? 0.95 : 0.55,
+          // 단계 미확인 구역은 점선으로 한 번 더 구분한다
+          strokeStyle: known ? 'solid' : 'shortdash',
+          fillColor: fill,
+          fillOpacity: baseOpacity,
         })
         kakao.maps.event.addListener(polygon, 'mouseover', () =>
-          polygon.setOptions({ fillOpacity: 0.36 }),
+          polygon.setOptions({ fillOpacity: baseOpacity + 0.2 }),
         )
         kakao.maps.event.addListener(polygon, 'mouseout', () =>
-          polygon.setOptions({ fillOpacity: 0.18 }),
+          polygon.setOptions({ fillOpacity: baseOpacity }),
         )
-        kakao.maps.event.addListener(polygon, 'click', () => setSelected(d))
+        kakao.maps.event.addListener(polygon, 'click', () => {
+          setSelected(d)
+          recordView(d.id)
+        })
         polygonsRef.current.push(polygon)
       })
 
@@ -274,7 +284,7 @@ export default function MapView() {
           yAnchor: 0.5,
           clickable: false,
           content: `<div class="develop-label${d.stage ? '' : ' develop-label--unknown'}">
-              <div class="develop-label__head" style="background:${color}">
+              <div class="develop-label__head" style="background:${typeColor}">
                 <span class="develop-label__type">${escapeHtml(type?.short ?? '')}</span>${escapeHtml(shortName(d.name))}
               </div>
               <div class="develop-label__stage" style="color:${sColor}">${escapeHtml(stageText)}</div>
@@ -380,8 +390,13 @@ export default function MapView() {
 
     const client = new kakao.maps.RoadviewClient()
     const onClick = (e: any) => {
-      client.getNearestPanoId(e.latLng, 50, (panoId: number | null) => {
-        if (!panoId || !roadviewRef.current) return
+      // 반경 50m는 축소된 화면에서 도로를 거의 못 맞춘다. 넉넉히 잡는다.
+      client.getNearestPanoId(e.latLng, 250, (panoId: number | null) => {
+        if (!panoId || !roadviewRef.current) {
+          setRoadviewMiss(true)
+          return
+        }
+        setRoadviewMiss(false)
         if (!roadviewInstanceRef.current) {
           roadviewInstanceRef.current = new kakao.maps.Roadview(roadviewRef.current)
         }
@@ -514,14 +529,34 @@ export default function MapView() {
     focusByBounds(d.bbox)
   }
 
-  /** 패널에서 고른 구역은 지도 응답이 도착한 뒤에 상세를 연다 */
+  /**
+   * 패널에서 고른 구역의 상세를 연다.
+   * 뷰포트 응답에 들어 있으면 그걸 쓰고, 필터에 걸려 빠졌으면 id로 직접 가져온다.
+   */
   useEffect(() => {
     if (!pendingSelectId) return
-    const hit = develops.find((d) => d.id === pendingSelectId)
+    const id = pendingSelectId
+
+    const hit = develops.find((d) => d.id === id)
     if (hit) {
       setSelected(hit)
       recordView(hit.id)
       setPendingSelectId(null)
+      return
+    }
+
+    let cancelled = false
+    fetch(`/api/develops/detail?id=${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: ApiDevelop | null) => {
+        if (cancelled || !d) return
+        setSelected(d)
+        recordView(d.id)
+        setPendingSelectId(null)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
   }, [develops, pendingSelectId])
 
@@ -807,7 +842,9 @@ export default function MapView() {
         />
         {tools.roadview && (
           <p className="absolute right-16 bottom-56 z-20 rounded bg-black/70 px-2 py-1 text-[11px] text-white">
-            파란 선이 있는 도로를 클릭하세요
+            {roadviewMiss
+              ? '이 근처에는 로드뷰가 없습니다 — 파란 선 위를 클릭하세요'
+              : '파란 선이 있는 도로를 클릭하세요'}
           </p>
         )}
 
