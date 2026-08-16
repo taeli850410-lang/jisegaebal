@@ -128,7 +128,9 @@ async function parcelsIn(zone) {
    (5건 74ms) 구역당 수백 건도 감당된다. */
 async function landCharacteristics(pnus) {
   const out = new Map()
-  const C = 10
+  // 동시 10건으로 구역당 900필지를 몰아치니 V-World 가 502를 돌려주기 시작했다.
+  // 접도율·용도지역은 비율이라 표본으로 충분하다. 천천히, 적게 부른다.
+  const C = 4
   for (let i = 0; i < pnus.length; i += C) {
     const slice = pnus.slice(i, i + C)
     await Promise.all(
@@ -153,8 +155,44 @@ async function landCharacteristics(pnus) {
         }
       }),
     )
+    await sleep(120)
   }
   return out
+}
+
+/**
+ * 토지이용계획(지역·지구 지정) — 토지이음이 보여주는 규제 항목의 원천이다.
+ *
+ * 토지이음(eum.go.kr)은 공개 API 가 없고 필지 조회가 세션·POST 기반이라
+ * 자동으로 끌어올 수 없다. 같은 LURIS 자료가 V-World 로 열려 있어 그쪽을 쓴다.
+ *
+ * 규제는 구역 전체에 걸리는 것이 대부분이라 표본 몇 필지면 충분하다.
+ */
+async function landUse(pnus) {
+  const tally = new Map()
+  for (const pnu of pnus) {
+    try {
+      const j = await (
+        await fetch(
+          `https://api.vworld.kr/ned/data/getLandUseAttr?key=${VKEY}` +
+            `&domain=${encodeURIComponent(DOMAIN)}&format=json&numOfRows=100&pageNo=1&pnu=${pnu}`,
+        )
+      ).json()
+      const b = j[Object.keys(j)[0]]
+      const f = b?.field ? (Array.isArray(b.field) ? b.field : [b.field]) : []
+      for (const x of f) {
+        const nm = String(x.prposAreaDstrcCodeNm ?? '').trim()
+        if (!nm) continue
+        const cur = tally.get(nm) ?? { label: nm, code: x.prposAreaDstrcCode, count: 0 }
+        cur.count++
+        tally.set(nm, cur)
+      }
+    } catch {
+      /* 건너뛴다 */
+    }
+    await sleep(150)
+  }
+  return [...tally.values()].sort((a, b) => b.count - a.count)
 }
 
 /**
@@ -425,14 +463,27 @@ for (const [i, zone] of targets.entries()) {
     recapsByLd.set(ld, await buildingsOf(ld, 'getBrRecapTitleInfo'))
   }
 
-  // 토지특성은 필지 단위라 콜이 많다. 아주 큰 구역은 상한을 두고 표본으로 본다.
-  const CAP = 900
-  const pnus = parcels.map((p) => p.pnu).slice(0, CAP)
+  /*
+   * 토지특성은 필지 단위 조회만 된다. 전수로 부르면 V-World 하루 한도를 넘고
+   * 502 가 나기 시작한다(구역당 900필지 x 400구역).
+   * 접도율·용도지역은 비율이라 표본으로 충분하므로 고르게 솎아 뽑는다.
+   */
+  const CAP = 150
+  const all = parcels.map((p) => p.pnu)
+  const step = Math.max(1, Math.ceil(all.length / CAP))
+  const pnus = all.filter((_, i) => i % step === 0).slice(0, CAP)
   const landChars = await landCharacteristics(pnus)
+  // 규제는 구역 전체에 걸리므로 표본 8필지면 충분하다
+  const regulations = await landUse(pnus.slice(0, 8))
 
   const s = compute(zone, parcels, buildingsByLd, recapsByLd, landChars)
+  s.regulations = regulations.map((r) => ({
+    label: r.label,
+    // 표본 전부에 걸리면 구역 전역, 일부면 일부 필지
+    scope: r.count >= Math.min(8, pnus.length) ? 'all' : 'partial',
+  }))
   s.legalDongs = ldCodes.length
-  if (parcels.length > CAP) s.landCharSampled = CAP
+  if (pnus.length < all.length) s.landCharSampled = pnus.length
   stats[zone.id] = s
   ok++
   console.log(

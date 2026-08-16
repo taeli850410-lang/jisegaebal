@@ -132,6 +132,8 @@ interface ZoneStats {
   }
   landUse: { label: string; areaM2: number }[]
   landPrice: { medianPerM2: number; samples: number } | null
+  regulations?: { label: string; scope: 'all' | 'partial' }[]
+  landCharSampled?: number
   source: string
 }
 
@@ -1207,8 +1209,47 @@ export default function DevelopPanel({
                     </>
                   )}
 
+                  {/* 규제 정보 — 토지이용계획 지역·지구 지정.
+                      토지이음이 보여주는 항목과 같은 LURIS 자료다. */}
+                  {stats.regulations && stats.regulations.length > 0 && (
+                    <>
+                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                        규제 정보
+                        <span className="ml-1 text-[11px] font-normal text-gray-400">
+                          토지이용계획
+                        </span>
+                        <Grade grade="A" />
+                      </h3>
+                      <div className="flex flex-wrap gap-1">
+                        {stats.regulations.map((r) => (
+                          <span
+                            key={r.label}
+                            className={`rounded px-1.5 py-1 text-[11px] font-semibold ${
+                              r.scope === 'all'
+                                ? 'bg-rose-50 text-rose-700'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}
+                          >
+                            {r.label}
+                            {r.scope === 'partial' && (
+                              <span className="ml-1 font-normal text-gray-400">일부</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-gray-400">
+                        토지이음(eum.go.kr)이 보여주는 지역·지구 지정과 같은 자료입니다. 토지이음은
+                        공개 API가 없어, 동일한 국토교통부 LURIS 자료를 V-World로 받습니다. 붉은
+                        항목은 표본 필지 전부에 걸린 것, 회색은 일부 필지만 해당합니다. 정확한 행위
+                        제한은 토지이음 열람과 담당 부서 확인이 필요합니다.
+                      </p>
+                    </>
+                  )}
+
                   <p className="mt-2 text-[11px] text-gray-400">
                     출처: {stats.source} · 구역 안 필지 {stats.parcelCount.toLocaleString()}개
+                    {stats.landCharSampled &&
+                      ` · 접도율·용도지역·규제는 ${stats.landCharSampled}필지 표본`}
                   </p>
                 </>
               )}
