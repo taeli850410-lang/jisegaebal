@@ -105,15 +105,48 @@ export default function HotPanel({
     let cancelled = false
     setLoading(true)
     const kinds = tab === 'price' ? '&kinds=villa' : ''
-    fetch(`/api/zone-transactions?gu=${encodeURIComponent(gu)}&days=${period}${kinds}`)
-      .then((r) => r.json())
-      .then((j) => !cancelled && setZones(j.zones ?? []))
-      .catch(() => !cancelled && setZones([]))
+    const one = (g: string) =>
+      fetch(`/api/zone-transactions?gu=${encodeURIComponent(g)}&days=${period}${kinds}`)
+        .then((r) => r.json())
+        .then((j) => (j.zones ?? []) as ZoneDeals[])
+        .catch(() => [] as ZoneDeals[])
+
+    /*
+     * 서울 전체를 서버 한 번에 처리하면 25개 구를 도느라 함수가 타임아웃된다
+     * (Vercel FUNCTION_INVOCATION_TIMEOUT). 구별로 나눠 부르면 각 요청이 짧고,
+     * 구를 따로 볼 때 만들어둔 캐시도 그대로 재사용된다.
+     * 결과는 도착하는 대로 채워 화면이 비어 있는 시간을 줄인다.
+     */
+    if (gu === ALL_GU) {
+      const names = gus.map((g) => g.gu)
+      const acc: ZoneDeals[] = []
+      const C = 5
+      ;(async () => {
+        for (let i = 0; i < names.length && !cancelled; i += C) {
+          const part = await Promise.all(names.slice(i, i + C).map(one))
+          if (cancelled) return
+          acc.push(...part.flat())
+          setZones(
+            [...acc].sort(
+              (a, b) =>
+                b.dealCount - a.dealCount || (b.medianPerPyeong ?? 0) - (a.medianPerPyeong ?? 0),
+            ),
+          )
+        }
+        if (!cancelled) setLoading(false)
+      })()
+      return () => {
+        cancelled = true
+      }
+    }
+
+    one(gu)
+      .then((z) => !cancelled && setZones(z))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
     }
-  }, [tab, gu, period])
+  }, [tab, gu, period, gus])
 
   /* 조회순 — 로컬 조회 기록 */
   useEffect(() => {

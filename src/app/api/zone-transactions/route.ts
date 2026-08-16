@@ -52,7 +52,12 @@ export interface ZoneTransactions {
   series: { ym: string; value: number | null }[]
 }
 
-/** 서울 전체 집계는 25개 구를 도는 만큼 무겁다. 짧게 캐시한다. */
+/**
+ * 서울 전체 집계는 25개 구를 도는 만큼 무겁다. 짧게 캐시한다.
+ *
+ * 다만 서버리스 함수 한도(60초) 안에 못 끝나는 경우가 있어, 화면에서는
+ * 구별로 나눠 부르고 합친다. 이 경로는 직접 호출용으로만 남긴다.
+ */
 const ALL_CACHE = new Map<string, { at: number; body: unknown }>()
 const ALL_TTL = 10 * 60 * 1000
 
