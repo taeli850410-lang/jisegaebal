@@ -123,8 +123,9 @@ export async function GET(request: Request) {
       noticeSn: zone.noticeSn,
       noticeDate: zone.noticeDate ?? null,
       bbox: zone.bbox,
-      // 정비몽땅 사업개요 제원 (없는 구역은 null)
+      // 정비몽땅 사업개요 제원 / 추진경과 인가일 (없는 구역은 null)
       summary: zone.summary ?? null,
+      progress: zone.progress ?? null,
     },
     deals: deals.slice(0, 60),
     dealCount: deals.length,

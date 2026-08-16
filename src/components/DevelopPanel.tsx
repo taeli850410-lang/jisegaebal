@@ -77,11 +77,25 @@ interface ZoneSummary {
   landUseGreen: number | null
 }
 
+/** 정비몽땅 추진경과에서 온 단계별 인가일 */
+interface ZoneProgress {
+  siteName: string
+  dates: Record<string, { date: string; rawStage: string; noticeNo: string | null }>
+  history: {
+    stage: string
+    date: string
+    note: string | null
+    noticeNo: string | null
+    vendor: string | null
+  }[]
+}
+
 interface FullData {
   zone: ApiDevelop & {
     dong: string | null
     noticeDate: string | null
     summary: ZoneSummary | null
+    progress: ZoneProgress | null
   }
   deals: Deal[]
   dealCount: number
@@ -149,6 +163,16 @@ export default function DevelopPanel({
   const sColor = stageColor(z.canonicalStage)
   const pyeong = Math.round(z.areaM2 / 3.3058)
   const sum = data?.zone.summary ?? null
+  const prog = data?.zone.progress ?? null
+
+  /** 현재 단계에 머문 개월 수 — 해당 단계 인가일이 있을 때만 계산한다 */
+  const currentSince = canonical ? prog?.dates[canonical.code]?.date : null
+  const monthsInStage = currentSince
+    ? Math.max(
+        0,
+        Math.round((Date.now() - new Date(currentSince).getTime()) / (1000 * 60 * 60 * 24 * 30.44)),
+      )
+    : null
 
   /**
    * 섹션으로 이동.
@@ -374,7 +398,7 @@ export default function DevelopPanel({
                         />
                         <div className="min-w-0">
                           <p
-                            className={`text-[13px] ${
+                            className={`flex items-center gap-1.5 text-[13px] ${
                               current
                                 ? 'font-bold text-gray-900'
                                 : done
@@ -383,10 +407,17 @@ export default function DevelopPanel({
                             }`}
                           >
                             {s.label}
+                            {/* 인가일이 있으면 함께 — 진행 속도를 읽는 근거가 된다 */}
+                            {prog?.dates[s.code] && (
+                              <span className="text-[11px] font-normal text-gray-400">
+                                {prog.dates[s.code].date.replace(/-/g, '.')}
+                              </span>
+                            )}
                           </p>
                           {current && (
                             <p className="mt-0.5 text-[11px]" style={{ color: s.color }}>
                               현재 단계
+                              {monthsInStage != null && ` · ${monthsInStage}개월째`}
                             </p>
                           )}
                         </div>
@@ -414,9 +445,15 @@ export default function DevelopPanel({
                 {match && (
                   <p className="mt-0.5 text-gray-400">연결 방식: {match.text}</p>
                 )}
-                <p className="mt-1.5 text-gray-400">
-                  단계별 <b>인가일·체류기간</b>은 고시문 파싱 연동 후 표시됩니다.
-                </p>
+                {prog ? (
+                  <p className="mt-1.5 text-gray-400">
+                    인가일 출처: 정비몽땅 추진경과 · 사업장 「{prog.siteName}」
+                  </p>
+                ) : (
+                  <p className="mt-1.5 text-gray-400">
+                    이 사업장은 정비몽땅에 추진경과가 등록되어 있지 않습니다.
+                  </p>
+                )}
               </div>
             </section>
 
@@ -531,7 +568,7 @@ export default function DevelopPanel({
               <ul className="space-y-1">
                 {[
                   ...(sum ? [] : [['사업 제원 (면적·소유자·용적률)', '정비몽땅 사업개요 미등록'] as const]),
-                  ['단계별 인가일', '정비몽땅 추진경과'],
+                  ...(prog ? [] : [['단계별 인가일', '정비몽땅 추진경과 미등록'] as const]),
                   ['권리산정기준일', '고시문 파싱'],
                   ['노후도 · 개발여건', '건축물대장 + 연속지적도'],
                   ['매물 · 경매 · 인근 아파트', '중개 제휴 / 법원경매 / K-apt'],

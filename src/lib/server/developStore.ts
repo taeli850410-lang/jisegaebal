@@ -37,6 +37,8 @@ export interface StoredDevelop {
 
   /* ── 정비몽땅 사업개요에서 오는 제원 (scripts/merge-summary.mjs) ── */
   summary?: ZoneSummary
+  /* ── 정비몽땅 추진경과에서 오는 단계별 인가일 (scripts/merge-progress.mjs) ── */
+  progress?: ZoneProgress
 
   /* ── 정비몽땅 매칭으로 채워지는 항목 (미매칭 구역은 비어 있다) ── */
   stage?: string
@@ -74,6 +76,21 @@ export interface ZoneSummary {
   landUseGreen: number | null
 }
 
+/** 정비몽땅 추진경과에서 뽑은 단계별 인가일 (scripts/merge-progress.mjs) */
+export interface ZoneProgress {
+  cafeUrl: string
+  siteName: string
+  /** 정규화 단계코드 → 최초 인가일 */
+  dates: Record<string, { date: string; rawStage: string; noticeNo: string | null }>
+  history: {
+    stage: string
+    date: string
+    note: string | null
+    noticeNo: string | null
+    vendor: string | null
+  }[]
+}
+
 /** 정비몽땅에서 붙인 진행단계 (scripts/build-stages.mjs 산출물) */
 export interface StageRecord {
   developId: string
@@ -106,11 +123,13 @@ export function getAllDevelops(): StoredDevelop[] {
   const base = readJson<StoredDevelop[]>('data', 'develops.seoul.json') ?? []
   const stages = readJson<StageRecord[]>('data', 'stages.seoul.json') ?? []
   const summaries = readJson<Record<string, ZoneSummary>>('data', 'zone-summary.json') ?? {}
+  const progresses = readJson<Record<string, ZoneProgress>>('data', 'zone-progress.json') ?? {}
   const byId = new Map(stages.map((s) => [s.developId, s]))
 
   cache = base.map((d) => {
     const summary = summaries[d.id]
-    if (summary) d = { ...d, summary }
+    const progress = progresses[d.id]
+    if (summary || progress) d = { ...d, ...(summary && { summary }), ...(progress && { progress }) }
     const s = byId.get(d.id)
     // gu는 enrich 단계에서 이미 채워져 있다. 정비몽땅 값으로 덮어쓰지 않는다.
     return s
