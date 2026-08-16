@@ -1,0 +1,30 @@
+# 환경변수 — API 키가 들어가므로 절대 커밋 금지
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# 의존성 / 빌드
+node_modules/
+.next/
+out/
+dist/
+build/
+
+# 로그 / 캐시
+*.log
+npm-debug.log*
+.turbo/
+.cache/
+
+# OS / 에디터
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 데이터 작업물 (원본 대장·지적 파일은 저장소에 넣지 않음)
+data/raw/
+*.shp
+*.dbf
+*.shx

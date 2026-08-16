@@ -1,0 +1,62 @@
+@import 'tailwindcss';
+
+:root {
+  --bg: #ffffff;
+  --fg: #171923;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --brand: #1a237e;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', 'Apple SD Gothic Neo',
+    system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 지도 위 구역 라벨 (CustomOverlay) */
+.develop-label {
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  pointer-events: none;
+  text-align: center;
+}
+
+.develop-label__name {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+
+.develop-label__stage {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  color: #374151;
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
+}
+
+.thin-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
