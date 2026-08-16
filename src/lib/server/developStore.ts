@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+﻿import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { RAW_STAGE_TO_CANONICAL } from '@/lib/taxonomy'
 
@@ -99,6 +99,7 @@ export interface ZoneStats {
     householdsPerHa: number | null
     abutting?: number
     abuttingBase?: number
+    semiBasement?: number
   }
   actual?: {
     far: number | null

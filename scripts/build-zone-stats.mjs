@@ -120,6 +120,11 @@ async function parcelsIn(zone) {
             jimok: (p.jibun ?? '').split(' ').pop() ?? '',
             areaM2: Math.round(ringAreaM2(ring)),
             jiga: num(p.jiga) || null,
+            // 건축물대장 파일은 코드가 아니라 이름으로 오므로 함께 들고 다닌다
+            gu: p.sig_nm ?? null,
+            dong: p.emd_nm ?? null,
+            bonbun: p.bonbun ?? null,
+            bubun: p.bubun ?? null,
           })
         }
       }
@@ -442,8 +447,12 @@ function compute(zone, parcels, buildingsByLd, recapsByLd, landChars) {
   }
   // 같은 지번에 표제부가 여러 건(동별) 있을 수 있어 관리번호로 중복 제거
   const seen = new Set()
-  const blds = mine.filter((b) => {
-    const k = b.mgmBldrgstPk ?? `${b.bun}${b.ji}${b.dongNm}${b.useAprDay}`
+  const blds = mine.filter((b, i) => {
+    // ?? 를 쓰면 빈 문자열 PK 가 그대로 키가 되어 그런 동이 전부 한 건으로 뭉친다.
+    // (대조1구역이 주거동 30동에서 4동으로 줄어 있었다)
+    const k =
+      b.mgmBldrgstPk ||
+      `${b.bun}${b.ji}|${b.dongNm ?? ''}|${b.useAprDay ?? ''}|${b.mainPurpsCdNm ?? ''}|${b.platArea ?? ''}|${i}`
     if (seen.has(k)) return false
     seen.add(k)
     return true
@@ -456,9 +465,15 @@ function compute(zone, parcels, buildingsByLd, recapsByLd, landChars) {
   let aptHouseholds = apts.reduce((s, b) => s + num(b.hhldCnt), 0)
   const houseHouseholds = houses.reduce((s, b) => s + Math.max(num(b.fmlyCnt), 1), 0)
 
-  // 단지형 아파트는 동별 표제부에 세대수가 비어 있고 총괄표제부에만 있다.
-  // 그래서 재건축 완료 구역이 0세대로 나왔다. 더 큰 쪽을 쓴다.
-  const recapHouseholds = recaps.reduce((s, b) => s + num(b.hhldCnt), 0)
+  /*
+   * 단지형 아파트는 동별 표제부에 세대수가 비어 있고 총괄표제부에만 있다.
+   * 그래서 재건축 완료 구역이 0세대로 나왔다.
+   *
+   * 다만 총괄표제부는 한 단지가 여러 지번에 걸쳐 있으면 지번마다 같은 세대수를
+   * 반복해서 들고 있다. 그대로 더하면 34필지짜리 구역이 18,943세대가 된다.
+   * 같은 값이 반복되는 것이므로 합이 아니라 최댓값을 쓴다.
+   */
+  const recapHouseholds = recaps.reduce((m, b) => Math.max(m, num(b.hhldCnt)), 0)
   if (recapHouseholds > aptHouseholds) aptHouseholds = recapHouseholds
 
   // 노후도 — 주거용 동 중 사용승인 30년 경과 비율
@@ -621,9 +636,14 @@ for (const [i, zone] of targets.entries()) {
     }
     for (const p of parcels) {
       const ld = p.pnu.slice(0, 10)
-      const key = `${ld}|${p.pnu.slice(11, 15)}${p.pnu.slice(15, 19)}`
-      const e = BUILDING_INDEX[key]
+      // 색인 키는 (구명·동명·본번·부번) 이다. 서울시 파일이 코드 대신 이름을 준다.
+      const bun = p.bonbun ?? p.pnu.slice(11, 15)
+      const ji = p.bubun ?? p.pnu.slice(15, 19)
+      const pad = (v) => String(Number(v) || 0).padStart(4, '0')
+      const e = p.gu && p.dong ? BUILDING_INDEX[`${p.gu}|${p.dong}|${pad(bun)}${pad(ji)}`] : null
       if (!e) continue
+      // compute() 는 PNU 슬라이스로 맞추므로 내부 키는 그대로 둔다.
+      // 이름 기반 키는 색인 조회에만 쓴다.
       const lot = { bun: p.pnu.slice(11, 15), ji: p.pnu.slice(15, 19) }
       for (const b of e.buildings) {
         buildingsByLd.get(ld).push({
@@ -645,6 +665,8 @@ for (const [i, zone] of targets.entries()) {
       }
       semiBasement += e.semiBasement ?? 0
     }
+    // 파일 색인은 법정동 API 캐시를 쓰지 않는다 — 표제부가 이미 다 들어 있다
+    persistBld()
   } else {
     for (const ld of ldCodes) {
       buildingsByLd.set(ld, await buildingsOf(ld))

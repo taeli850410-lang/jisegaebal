@@ -36,3 +36,9 @@ data/raw/
 
 # 법정동 건축물대장 캐시 (수십 MB, 재생성 가능)
 data/building-dong-cache.json
+
+# 건축물대장 색인 (110MB, CSV 로 재생성 가능)
+data/building-index.json
+
+# 건축물대장 원본 CSV (1GB+)
+.claude/*.csv

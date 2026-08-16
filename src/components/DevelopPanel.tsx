@@ -122,6 +122,7 @@ interface ZoneStats {
     householdsPerHa: number | null
     abutting?: number
     abuttingBase?: number
+    semiBasement?: number
   }
   actual?: {
     far: number | null
@@ -1373,14 +1374,24 @@ export default function DevelopPanel({
                             },
                           ]
                         : []),
-                      {
-                        k: '지하층 보유',
-                        v: `${stats.conditions.withBasement}동 / ${stats.conditions.residentialBuildings}동`,
-                        sub: pct(
-                          stats.conditions.withBasement,
-                          stats.conditions.residentialBuildings,
-                        ),
-                      },
+                      // 층별개요 파일이 있으면 진짜 반지하, 없으면 지하층 보유로 대체한다
+                      stats.conditions.semiBasement != null
+                        ? {
+                            k: '반지하 비율',
+                            v: `${stats.conditions.semiBasement}동 / ${stats.conditions.residentialBuildings}동`,
+                            sub: pct(
+                              stats.conditions.semiBasement,
+                              stats.conditions.residentialBuildings,
+                            ),
+                          }
+                        : {
+                            k: '지하층 보유',
+                            v: `${stats.conditions.withBasement}동 / ${stats.conditions.residentialBuildings}동`,
+                            sub: pct(
+                              stats.conditions.withBasement,
+                              stats.conditions.residentialBuildings,
+                            ),
+                          },
                       ...(stats.landPrice
                         ? [
                             {
