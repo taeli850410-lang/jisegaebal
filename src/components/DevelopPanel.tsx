@@ -5,6 +5,7 @@ import { PROJECT_TYPE_MAP, STAGES, STAGE_MAP, stageColor } from '@/lib/taxonomy'
 import { isFavorite, toggleFavorite } from '@/lib/userStore'
 import type { ApiDevelop } from '@/lib/types'
 import DealChart from './detail/DealChart'
+import BurdenSimulator from './detail/BurdenSimulator'
 
 /** 매칭 방식에 따라 신뢰도가 다르다 — 숨기지 않고 드러낸다 */
 const MATCH_LABEL: Record<string, { text: string; grade: 'A' | 'B' | 'C' }> = {
@@ -145,6 +146,7 @@ export default function DevelopPanel({
   const [loading, setLoading] = useState(true)
   const [fav, setFav] = useState(false)
   const [showAllDeals, setShowAllDeals] = useState(false)
+  const [simOpen, setSimOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => setFav(isFavorite(develop.id)), [develop.id])
@@ -198,6 +200,14 @@ export default function DevelopPanel({
 
   const deals = data?.deals ?? []
   const shownDeals = showAllDeals ? deals : deals.slice(0, 5)
+
+  /** 준공 후 시세 기본값 — 인근 아파트 중 평당가가 가장 높은 거래 */
+  const nearbyTopPpp = (() => {
+    const all = (data?.apartments ?? []).flatMap((a) =>
+      a.areas.map((ar) => (ar.pyeong > 0 ? ar.price / ar.pyeong : 0)),
+    )
+    return all.length ? Math.round(Math.max(...all)) : null
+  })()
 
   return (
     <aside className="absolute top-0 right-0 bottom-0 z-30 flex w-[400px] flex-col border-l border-gray-200 bg-white shadow-xl">
@@ -709,10 +719,10 @@ export default function DevelopPanel({
               )}
 
               <button
-                disabled
-                className="mt-5 w-full cursor-not-allowed rounded-lg bg-gray-100 py-2.5 text-sm font-bold text-gray-400"
+                onClick={() => setSimOpen(true)}
+                className="mt-5 w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-bold text-white hover:bg-indigo-700"
               >
-                💰 분담금 시뮬레이터 (준비 중)
+                💰 분담금 시뮬레이터
               </button>
 
               <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
@@ -724,6 +734,15 @@ export default function DevelopPanel({
           </>
         )}
       </div>
+
+      {simOpen && (
+        <BurdenSimulator
+          zoneName={z.name}
+          zoneLandPricePerPyeong={data?.medianPerPyeong ?? null}
+          nearbyTopPricePerPyeong={nearbyTopPpp}
+          onClose={() => setSimOpen(false)}
+        />
+      )}
     </aside>
   )
 }
