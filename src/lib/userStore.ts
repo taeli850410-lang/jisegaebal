@@ -84,6 +84,15 @@ export function getViews(): ViewEntry[] {
   return read<ViewEntry[]>(VIEW_KEY, [])
 }
 
+/** 최근 본 구역 — 최근 순 (검색창 기본 목록) */
+export function getRecentViews(limit = 20): ViewEntry[] {
+  return [...getViews()].sort((a, b) => b.lastAt - a.lastAt).slice(0, limit)
+}
+
+export function clearViews() {
+  write(VIEW_KEY, [])
+}
+
 /** 저장소 변경 구독 (같은 탭 + 다른 탭 모두) */
 export function subscribeStore(cb: () => void): () => void {
   const onCustom = () => cb()

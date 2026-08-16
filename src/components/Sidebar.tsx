@@ -3,6 +3,7 @@
 import { PROJECT_TYPE_MAP, stageColor } from '@/lib/taxonomy'
 import type { ApiDevelop } from '@/lib/types'
 import type { PanelKey } from './SidePanel'
+import SearchBox from './SearchBox'
 
 export default function Sidebar({
   develops,
@@ -12,6 +13,8 @@ export default function Sidebar({
   onSelect,
   onOpenPanel,
   favoriteCount,
+  onSearchZone,
+  onSearchPlace,
 }: {
   develops: ApiDevelop[]
   total: number
@@ -20,6 +23,8 @@ export default function Sidebar({
   onSelect: (d: ApiDevelop) => void
   onOpenPanel: (key: PanelKey) => void
   favoriteCount: number
+  onSearchZone: (id: string, bbox: [number, number, number, number]) => void
+  onSearchPlace: (lng: number, lat: number) => void
 }) {
   return (
     <aside className="relative flex w-[340px] shrink-0 flex-col border-r border-gray-200 bg-white">
@@ -30,12 +35,8 @@ export default function Sidebar({
           </span>
           <span className="text-[15px] font-bold">정비사업 정보 플랫폼</span>
         </div>
-        <div className="mt-3 flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
-          <span className="text-gray-400">🔍</span>
-          <input
-            placeholder="구역 이름, 주소, 지하철역으로 검색"
-            className="w-full text-sm outline-none placeholder:text-gray-400"
-          />
+        <div className="mt-3">
+          <SearchBox onSelectZone={onSearchZone} onSelectPlace={onSearchPlace} />
         </div>
       </div>
 

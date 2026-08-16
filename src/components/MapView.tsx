@@ -588,6 +588,18 @@ export default function MapView() {
           onSelect={focusDevelop}
           onOpenPanel={setPanel}
           favoriteCount={favCount}
+          onSearchZone={(id, bbox) => {
+            focusByBounds(bbox)
+            setPendingSelectId(id)
+          }}
+          onSearchPlace={(lng, lat) => {
+            const map = mapRef.current
+            if (!map) return
+            // 장소는 구역이 아니므로 상세를 열지 않고 위치만 옮긴다.
+            // 주변 구역이 보이도록 적당히 확대한다.
+            map.setLevel(4)
+            map.panTo(new window.kakao.maps.LatLng(lat, lng))
+          }}
         />
         {panel && (
           <SidePanel
