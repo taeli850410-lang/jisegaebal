@@ -128,7 +128,19 @@ async function parcelsIn(zone) {
           })
         }
       }
-      return out
+      /*
+       * 한 필지가 여러 조각(MultiPolygon)이면 링 수만큼 항목이 생긴다.
+       * 그대로 두면 필지 수가 부풀고, 지번 단위 값(반지하 동수)이 조각 수만큼
+       * 중복 합산된다 — 실제로 반지하 비율이 219%로 나왔다.
+       * PNU 로 합치고 면적만 더한다.
+       */
+      const byPnu = new Map()
+      for (const p of out) {
+        const prev = byPnu.get(p.pnu)
+        if (prev) prev.areaM2 += p.areaM2
+        else byPnu.set(p.pnu, { ...p })
+      }
+      return [...byPnu.values()]
     } catch {
       /* 재시도 */
     }
