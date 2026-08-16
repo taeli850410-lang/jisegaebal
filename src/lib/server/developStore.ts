@@ -39,6 +39,8 @@ export interface StoredDevelop {
   summary?: ZoneSummary
   /* ── 정비몽땅 추진경과에서 오는 단계별 인가일 (scripts/merge-progress.mjs) ── */
   progress?: ZoneProgress
+  /* ── 연속지적도 + 건축물대장으로 산출한 통계 (scripts/build-zone-stats.mjs) ── */
+  stats?: ZoneStats
 
   /* ── 정비몽땅 매칭으로 채워지는 항목 (미매칭 구역은 비어 있다) ── */
   stage?: string
@@ -74,6 +76,29 @@ export interface ZoneSummary {
   landUseRoad: number | null
   landUsePark: number | null
   landUseGreen: number | null
+}
+
+/**
+ * 구역별 세대현황·노후도·개발여건 (scripts/build-zone-stats.mjs)
+ *
+ * 연속지적도(V-World)로 구역 안 필지를 세고, 그 지번의 건축물대장을 붙여 계산한다.
+ * 산출한 구역만 채워지므로 없는 구역은 화면에서 미연동으로 표시한다.
+ */
+export interface ZoneStats {
+  parcelCount: number
+  legalDongs?: number
+  households: { total: number; apt: number; house: number }
+  aging: { base: number; denominator: number; now: number; in5: number; in10: number }
+  conditions: {
+    smallParcels: number
+    parcels: number
+    withBasement: number
+    residentialBuildings: number
+    householdsPerHa: number | null
+  }
+  landUse: { label: string; areaM2: number }[]
+  landPrice: { medianPerM2: number; samples: number } | null
+  source: string
 }
 
 /** 정비몽땅 추진경과에서 뽑은 단계별 인가일 (scripts/merge-progress.mjs) */
@@ -124,12 +149,20 @@ export function getAllDevelops(): StoredDevelop[] {
   const stages = readJson<StageRecord[]>('data', 'stages.seoul.json') ?? []
   const summaries = readJson<Record<string, ZoneSummary>>('data', 'zone-summary.json') ?? {}
   const progresses = readJson<Record<string, ZoneProgress>>('data', 'zone-progress.json') ?? {}
+  const zoneStats = readJson<Record<string, ZoneStats>>('data', 'zone-stats.json') ?? {}
   const byId = new Map(stages.map((s) => [s.developId, s]))
 
   cache = base.map((d) => {
     const summary = summaries[d.id]
     const progress = progresses[d.id]
-    if (summary || progress) d = { ...d, ...(summary && { summary }), ...(progress && { progress }) }
+    const stats = zoneStats[d.id]
+    if (summary || progress || stats)
+      d = {
+        ...d,
+        ...(summary && { summary }),
+        ...(progress && { progress }),
+        ...(stats && { stats }),
+      }
     const s = byId.get(d.id)
     // gu는 enrich 단계에서 이미 채워져 있다. 정비몽땅 값으로 덮어쓰지 않는다.
     return s

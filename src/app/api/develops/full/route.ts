@@ -249,6 +249,8 @@ export async function GET(request: Request) {
       // 정비몽땅 사업개요 제원 / 추진경과 인가일 (없는 구역은 null)
       summary: zone.summary ?? null,
       progress: zone.progress ?? null,
+      // 연속지적도 + 건축물대장 산출 (아직 계산 안 된 구역은 null)
+      stats: zone.stats ?? null,
     },
     deals: deals.slice(0, 60),
     dealCount: deals.length,

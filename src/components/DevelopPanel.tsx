@@ -108,12 +108,30 @@ interface NewsItem {
   link: string
 }
 
+/** 연속지적도 + 건축물대장으로 산출한 구역 통계 */
+interface ZoneStats {
+  parcelCount: number
+  households: { total: number; apt: number; house: number }
+  aging: { base: number; denominator: number; now: number; in5: number; in10: number }
+  conditions: {
+    smallParcels: number
+    parcels: number
+    withBasement: number
+    residentialBuildings: number
+    householdsPerHa: number | null
+  }
+  landUse: { label: string; areaM2: number }[]
+  landPrice: { medianPerM2: number; samples: number } | null
+  source: string
+}
+
 interface FullData {
   zone: ApiDevelop & {
     dong: string | null
     noticeDate: string | null
     summary: ZoneSummary | null
     progress: ZoneProgress | null
+    stats: ZoneStats | null
   }
   deals: Deal[]
   dealCount: number
@@ -308,6 +326,29 @@ function CompareTable({
   )
 }
 
+/** 사진의 "전체 세대 수 / 1,899 (95%)" 처럼 값과 비율을 한 줄로 놓는 표 */
+function StatRows({
+  rows,
+}: {
+  rows: { k: string; v: string; sub?: string | null }[]
+}) {
+  return (
+    <dl className="divide-y divide-gray-100 text-[13px]">
+      {rows.map((r) => (
+        <div key={r.k} className="flex items-center justify-between gap-2 py-2">
+          <dt className="shrink-0 text-gray-500">{r.k}</dt>
+          <dd className="text-right font-semibold">
+            {r.v}
+            {r.sub && <span className="ml-1 font-normal text-gray-400">{r.sub}</span>}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+const pct = (a: number, b: number) => (b > 0 ? `(${Math.round((a / b) * 100)}%)` : '')
+
 export default function DevelopPanel({
   develop,
   onClose,
@@ -401,6 +442,7 @@ export default function DevelopPanel({
   const pyeong = Math.round(z.areaM2 / 3.3058)
   const sum = data?.zone.summary ?? null
   const prog = data?.zone.progress ?? null
+  const stats = data?.zone.stats ?? null
 
   /** 현재 단계에 머문 개월 수 — 해당 단계 인가일이 있을 때만 계산한다 */
   const currentSince = canonical ? prog?.dates[canonical.code]?.date : null
@@ -819,20 +861,46 @@ export default function DevelopPanel({
                       rel="noopener noreferrer"
                       className="flex items-center justify-between gap-2 py-2.5 hover:bg-gray-50"
                     >
-                      <span className="min-w-0">
-                        <span className="block truncate text-[13px] font-semibold text-gray-800">
-                          {r.label}
+                      <span className="flex min-w-0 items-start gap-1.5">
+                        <span className="mt-px shrink-0 text-gray-300">🔗</span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] font-semibold text-gray-800 underline decoration-gray-200 underline-offset-2">
+                            {r.label}
+                          </span>
+                          <span className="block truncate text-[11px] text-gray-400">{r.note}</span>
                         </span>
-                        <span className="block truncate text-[11px] text-gray-400">{r.note}</span>
                       </span>
-                      <span className="shrink-0 text-[11px] font-bold text-indigo-600">열기 ↗</span>
+                      <span className="shrink-0 text-[11px] font-bold text-indigo-600">열기</span>
                     </a>
                   </li>
                 ))}
+
+                {/* 소유주 전용 — 정비몽땅 정보공개는 소유주 인증을 거쳐야 열린다.
+                    우리가 대신 받아올 수 없으므로 어디로 가야 하는지만 정확히 알린다. */}
+                <li className="flex items-center justify-between gap-2 py-2.5">
+                  <span className="flex min-w-0 items-start gap-1.5">
+                    <span className="mt-px shrink-0 text-gray-300">🔒</span>
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-[13px] font-semibold text-gray-500">
+                          의사록 · 자금운용 · 용역계약
+                        </span>
+                        <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-px text-[10px] font-bold text-indigo-500">
+                          소유주 전용
+                        </span>
+                      </span>
+                      <span className="block truncate text-[11px] text-gray-400">
+                        정비몽땅 정보공개 — 본인인증 후 열람
+                      </span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[11px] text-gray-300">잠김</span>
+                </li>
               </ul>
               <p className="mt-2 text-[11px] leading-relaxed text-gray-400">
                 고시문·의사록 파일은 저작권·개인정보 문제로 복제해 두지 않고 원문 사이트로
-                연결합니다.
+                연결합니다. 정비몽땅 정보공개 자료는 소유주 본인인증이 필요해 자동으로 가져올 수
+                없습니다.
               </p>
             </section>
 
@@ -943,13 +1011,158 @@ export default function DevelopPanel({
                 </>
               )}
 
+              {/* ── 세대 현황 · 노후도 · 개발 여건 · 유형별 토지 면적 ── */}
+              {stats && (
+                <>
+                  <h3 className="mt-6 mb-2 text-sm font-bold">
+                    세대 현황
+                    <Grade grade="B" />
+                  </h3>
+                  <StatRows
+                    rows={[
+                      { k: '전체 세대 수', v: stats.households.total.toLocaleString() },
+                      {
+                        k: '공동 세대 수',
+                        v: stats.households.apt.toLocaleString(),
+                        sub: pct(stats.households.apt, stats.households.total),
+                      },
+                      {
+                        k: '단독 세대 수',
+                        v: stats.households.house.toLocaleString(),
+                        sub: pct(stats.households.house, stats.households.total),
+                      },
+                    ]}
+                  />
+
+                  <h3 className="mt-5 mb-2 text-sm font-bold">
+                    노후도
+                    <span className="ml-1 text-[11px] font-normal text-gray-400">
+                      {stats.aging.base}년 기준 · 주거용 동
+                    </span>
+                    <Grade grade="B" />
+                  </h3>
+                  {stats.aging.denominator > 0 ? (
+                    <StatRows
+                      rows={(
+                        [
+                          ['현재', stats.aging.now],
+                          ['5년 후', stats.aging.in5],
+                          ['10년 후', stats.aging.in10],
+                        ] as [string, number][]
+                      ).map(([k, n]) => ({
+                        k,
+                        v: `${n} / ${stats.aging.denominator}`,
+                        sub: pct(n, stats.aging.denominator),
+                      }))}
+                    />
+                  ) : (
+                    <p className="rounded-lg bg-gray-50 px-3 py-3 text-xs text-gray-500">
+                      구역 안에서 사용승인일이 확인된 주거용 건물이 없습니다.
+                    </p>
+                  )}
+
+                  <h3 className="mt-5 mb-2 text-sm font-bold">
+                    개발 여건
+                    <Grade grade="B" />
+                  </h3>
+                  <StatRows
+                    rows={[
+                      {
+                        k: '과소필지',
+                        v: `${stats.conditions.smallParcels} / ${stats.conditions.parcels}`,
+                        sub: pct(stats.conditions.smallParcels, stats.conditions.parcels),
+                      },
+                      {
+                        k: '호수밀도',
+                        v:
+                          stats.conditions.householdsPerHa != null
+                            ? `${stats.conditions.householdsPerHa}호/ha`
+                            : '—',
+                        sub: `(${stats.households.total.toLocaleString()}호)`,
+                      },
+                      {
+                        k: '지하층 보유',
+                        v: `${stats.conditions.withBasement}동 / ${stats.conditions.residentialBuildings}동`,
+                        sub: pct(
+                          stats.conditions.withBasement,
+                          stats.conditions.residentialBuildings,
+                        ),
+                      },
+                      ...(stats.landPrice
+                        ? [
+                            {
+                              k: '개별공시지가',
+                              v: `${Math.round(stats.landPrice.medianPerM2 / 10000).toLocaleString()}만원/㎡`,
+                              sub: `(중앙값 · 표본 ${stats.landPrice.samples})`,
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
+                  <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                    과소필지는 90㎡ 미만 필지입니다. 지하층 보유는 반지하의 대리지표로, 정확한
+                    반지하 비율은 층별개요를 봐야 합니다. 접도율은 아직 연동되지 않았습니다.
+                  </p>
+
+                  {stats.landUse.length > 0 && (
+                    <>
+                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                        유형별 토지 면적
+                        <Grade grade="B" />
+                      </h3>
+                      <div className="space-y-1.5">
+                        {(() => {
+                          const total = stats.landUse.reduce((s, l) => s + l.areaM2, 0)
+                          const COLOR: Record<string, string> = {
+                            공동주택: '#4F46E5',
+                            단독주택: '#0EA5E9',
+                            근린생활시설: '#F59E0B',
+                            도로: '#9CA3AF',
+                            기타: '#CBD5E1',
+                          }
+                          return stats.landUse.map((l) => {
+                            const p = total ? Math.round((l.areaM2 / total) * 100) : 0
+                            return (
+                              <div key={l.label} className="flex items-center gap-2">
+                                <span className="w-20 shrink-0 truncate text-xs text-gray-500">
+                                  {l.label}
+                                </span>
+                                <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-100">
+                                  <div
+                                    className="h-full rounded-full"
+                                    style={{
+                                      width: `${p}%`,
+                                      background: COLOR[l.label] ?? '#CBD5E1',
+                                    }}
+                                  />
+                                </div>
+                                <span className="w-28 shrink-0 text-right text-[11px] text-gray-500">
+                                  {l.areaM2.toLocaleString()}㎡ ({p}%)
+                                </span>
+                              </div>
+                            )
+                          })
+                        })()}
+                      </div>
+                    </>
+                  )}
+
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    출처: {stats.source} · 구역 안 필지 {stats.parcelCount.toLocaleString()}개
+                  </p>
+                </>
+              )}
+
               <p className="mt-5 mb-1.5 text-xs font-bold text-gray-500">아직 연동되지 않은 정보</p>
               <ul className="space-y-1">
                 {[
                   ...(sum ? [] : [['사업 제원 (면적·소유자·용적률)', '정비몽땅 사업개요 미등록'] as const]),
                   ...(prog ? [] : [['단계별 인가일', '정비몽땅 추진경과 미등록'] as const]),
+                  ...(stats
+                    ? []
+                    : [['세대현황 · 노후도 · 개발여건', '이 구역은 아직 산출 전입니다'] as const]),
                   ['권리산정기준일', '고시문 파싱'],
-                  ['노후도 · 개발여건', '건축물대장 + 연속지적도(V-World)'],
+                  ['접도율 · 반지하 비율', '토지특성(V-World) + 층별개요'],
                   ['매물 · 경매', '중개 제휴 / 법원경매'],
                 ].map(([k, src]) => (
                   <li
