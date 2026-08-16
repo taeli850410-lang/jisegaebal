@@ -1,0 +1,5 @@
+# 변환 원본 SHP/zip — 배포에 불필요 (data/develops.seoul.json 만 있으면 된다)
+data/raw/
+
+# 기획 문서
+재개발플랫폼_개발기획서.md
