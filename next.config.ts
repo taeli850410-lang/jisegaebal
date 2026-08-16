@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/develops': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json', './data/zone-progress.json'],
     '/api/develops/browse': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json', './data/zone-progress.json'],
+    '/api/develops/clusters': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json', './data/zone-progress.json'],
     '/api/develops/detail': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json', './data/zone-progress.json'],
     '/api/parcels': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json', './data/zone-progress.json'],
     '/api/zone-transactions': [

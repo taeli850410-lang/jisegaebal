@@ -5,22 +5,36 @@ import type { ApiDevelop } from '@/lib/types'
 import type { PanelKey } from './SidePanel'
 import SearchBox from './SearchBox'
 
+export interface SidebarCluster {
+  key: string
+  label: string
+  gu: string
+  dong: string | null
+  count: number
+  withStage: number
+  center: [number, number]
+}
+
 export default function Sidebar({
   develops,
+  clusters,
   total,
   truncated,
   loading,
   onSelect,
+  onSelectCluster,
   onOpenPanel,
   favoriteCount,
   onSearchZone,
   onSearchPlace,
 }: {
   develops: ApiDevelop[]
+  clusters: SidebarCluster[]
   total: number
   truncated: boolean
   loading: boolean
   onSelect: (d: ApiDevelop) => void
+  onSelectCluster: (lng: number, lat: number) => void
   onOpenPanel: (key: PanelKey) => void
   favoriteCount: number
   onSearchZone: (id: string, bbox: [number, number, number, number]) => void
@@ -68,11 +82,41 @@ export default function Sidebar({
       </div>
 
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
-        <h2 className="text-sm font-bold">화면 안의 구역</h2>
+        <h2 className="text-sm font-bold">
+          {clusters.length ? '화면 안의 지역' : '화면 안의 구역'}
+        </h2>
         <span className="text-xs text-gray-400">
           {loading ? '불러오는 중…' : `${total.toLocaleString()}개`}
         </span>
       </div>
+
+      {/* 축소 뷰 — 개별 구역 대신 지역별 개수. 누르면 그 지역으로 확대한다. */}
+      {clusters.length > 0 && (
+        <div className="thin-scroll flex-1 overflow-y-auto px-2 pb-4">
+          <p className="mx-1 mb-2 rounded-lg bg-gray-50 px-2.5 py-1.5 text-[11px] text-gray-500">
+            지역을 누르거나 지도를 확대하면 구역이 하나씩 보입니다.
+          </p>
+          {clusters.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => onSelectCluster(c.center[0], c.center[1])}
+              className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left hover:bg-gray-50"
+            >
+              <span>
+                <span className="text-sm font-semibold">{c.label}</span>
+                {c.dong && <span className="ml-1.5 text-[11px] text-gray-400">{c.gu}</span>}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="text-[11px] text-gray-400">단계 {c.withStage}</span>
+                <span className="min-w-[26px] rounded bg-gray-800 px-1.5 py-0.5 text-center text-[11px] font-bold text-white">
+                  {c.count}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {truncated && (
         <p className="mx-3 mb-1 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
@@ -80,7 +124,9 @@ export default function Sidebar({
         </p>
       )}
 
-      <div className="thin-scroll flex-1 overflow-y-auto px-2 pb-4">
+      <div
+        className={`thin-scroll flex-1 overflow-y-auto px-2 pb-4 ${clusters.length ? 'hidden' : ''}`}
+      >
         {!loading && develops.length === 0 && (
           <p className="px-2 py-8 text-center text-sm text-gray-400">
             이 화면에는 정비구역이 없습니다.

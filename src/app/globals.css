@@ -72,6 +72,48 @@ body {
   border-left: 3px solid currentColor;
 }
 
+/* ── 지역별 집계 배지 (축소 뷰) ──────────────────────
+   위: 지역명(흰 바탕) / 아래: 구역 수(진한 바탕). 누르면 그 지역으로 확대. */
+.zone-cluster {
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 52px;
+  border: 0;
+  padding: 0;
+  border-radius: 7px;
+  overflow: hidden;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.3),
+    0 5px 12px rgb(0 0 0 / 0.16);
+  transition: transform 0.12s ease;
+}
+.zone-cluster:hover {
+  transform: translate(-50%, -50%) scale(1.06);
+}
+.zone-cluster__name {
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #1f2937;
+  letter-spacing: -0.02em;
+}
+.zone-cluster__count {
+  padding: 3px 9px 4px;
+  background: #1f2937;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
 /* 단계 미확인 — 이름만 한 줄. 지도를 덮지 않도록 그림자도 뺀다. */
 .develop-label--quiet {
   padding: 2px 7px;

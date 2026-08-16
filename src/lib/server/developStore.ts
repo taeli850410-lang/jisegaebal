@@ -281,6 +281,79 @@ export function guCounts(): { gu: string; count: number }[] {
     .sort((a, b) => a.gu.localeCompare(b.gu, 'ko'))
 }
 
+export interface ClusterQuery {
+  bbox: [number, number, number, number]
+  by: 'gu' | 'dong'
+  projectTypes?: string[]
+  stages?: string[]
+}
+
+export interface Cluster {
+  key: string
+  label: string
+  gu: string
+  dong: string | null
+  count: number
+  /** 단계가 확인된 구역 수 — 배지에 진행도를 색으로 얹는 데 쓴다 */
+  withStage: number
+  center: [number, number]
+}
+
+/**
+ * 축소했을 때 쓰는 지역별 집계.
+ *
+ * 구역을 다 그리면 화면이 폴리곤으로 덮이고 라벨도 못 읽는다.
+ * 벤치마크(재개발닷컴)처럼 멀리서는 "이 동에 몇 개"만 보여주고,
+ * 확대하면 개별 구역으로 바뀐다.
+ *
+ * 개수는 뷰포트 안 전체를 세므로 queryDevelops의 상한(400~600개)에 걸리지 않는다.
+ */
+export function clusterDevelops({ bbox, by, projectTypes, stages }: ClusterQuery): Cluster[] {
+  const typeFilter = projectTypes?.length ? new Set(projectTypes) : null
+  const stageFilter = stages?.length ? new Set(stages) : null
+
+  const groups = new Map<string, { gu: string; dong: string | null; ds: StoredDevelop[] }>()
+  for (const d of getAllDevelops()) {
+    if (!d.gu) continue
+    if (!intersects(d.bbox, bbox)) continue
+    if (typeFilter && !typeFilter.has(d.projectType)) continue
+    if (stageFilter && !(d.canonicalStage != null && stageFilter.has(d.canonicalStage))) continue
+
+    // 동을 모르는 구역은 자치구로 올려 세어 개수가 새지 않게 한다
+    const dong = by === 'dong' ? (d.dong ?? null) : null
+    const key = dong ? `${d.gu}|${dong}` : d.gu
+    const g = groups.get(key)
+    if (g) g.ds.push(d)
+    else groups.set(key, { gu: d.gu, dong, ds: [d] })
+  }
+
+  const out: Cluster[] = []
+  for (const [key, { gu, dong, ds }] of groups) {
+    // 배지 위치는 구역 중심들의 면적가중 평균 — 큰 구역 쪽으로 붙는 게 자연스럽다
+    let x = 0
+    let y = 0
+    let w = 0
+    for (const d of ds) {
+      const c = d.center ?? [(d.bbox[0] + d.bbox[2]) / 2, (d.bbox[1] + d.bbox[3]) / 2]
+      const a = Math.max(d.areaM2, 1)
+      x += c[0] * a
+      y += c[1] * a
+      w += a
+    }
+    out.push({
+      key,
+      label: dong ?? gu,
+      gu,
+      dong,
+      count: ds.length,
+      withStage: ds.filter((d) => d.stage).length,
+      center: [x / w, y / w],
+    })
+  }
+
+  return out.sort((a, b) => b.count - a.count)
+}
+
 export interface DevelopQuery {
   bbox: [number, number, number, number]
   level: number

@@ -33,6 +33,29 @@ const UNKNOWN_LABEL_MAX_LEVEL = 4
 const LABEL_MAX_COUNT = 40
 
 /**
+ * 축소 뷰 — 지역별 집계 배지.
+ *
+ * 서울 전체를 폴리곤으로 그리면 구역이 겹쳐 형태도 라벨도 읽히지 않는다.
+ * 멀리서는 "이 동에 몇 개"만 보여주고, 확대하면 개별 구역으로 바뀐다.
+ * 배지를 누르면 그 지역으로 확대한다.
+ */
+const CLUSTER_MIN_LEVEL = 7
+/** 이보다 더 축소하면 동이 너무 많아 자치구 단위로 묶는다 */
+const GU_CLUSTER_LEVEL = 9
+/** 배지를 눌렀을 때 이동할 줌 */
+const CLUSTER_ZOOM_TO = 5
+
+interface Cluster {
+  key: string
+  label: string
+  gu: string
+  dong: string | null
+  count: number
+  withStage: number
+  center: [number, number]
+}
+
+/**
  * 라벨이 차지할 화면 크기.
  *
  * 글자 수 × 상수로 어림하면 실제 렌더 폭과 어긋나 겹침 판정이 헐거워진다.
@@ -50,6 +73,7 @@ const HEAD_FONT = '800 12px system-ui, sans-serif'
 const TYPE_FONT = '800 10.5px system-ui, sans-serif'
 const STAGE_FONT = '700 11px system-ui, sans-serif'
 const QUIET_FONT = '700 11px system-ui, sans-serif'
+const CLUSTER_FONT = '700 12px system-ui, sans-serif'
 
 function labelBox(d: ApiDevelop): { w: number; h: number } {
   const name = shortName(d.name)
@@ -70,6 +94,7 @@ export default function MapView() {
   const mapRef = useRef<any>(null)
   const polygonsRef = useRef<any[]>([])
   const labelsRef = useRef<any[]>([])
+  const clusterOverlaysRef = useRef<any[]>([])
   const parcelPolysRef = useRef<any[]>([])
   const roadviewOverlayRef = useRef<any>(null)
   const roadviewInstanceRef = useRef<any>(null)
@@ -99,6 +124,7 @@ export default function MapView() {
 
   const [level, setLevel] = useState(INITIAL_LEVEL)
   const [develops, setDevelops] = useState<ApiDevelop[]>([])
+  const [clusters, setClusters] = useState<Cluster[]>([])
   const [totalInView, setTotalInView] = useState(0)
   const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -181,19 +207,35 @@ export default function MapView() {
     const types = [...selectedTypes].join(',')
     const stages = [...selectedStages].join(',')
     const sig = `${types}|${stages}`
+    const filterQs = `${types ? `&types=${types}` : ''}${stages ? `&stages=${stages}` : ''}`
+    const lv = map.getLevel()
 
     const seq = ++fetchSeqRef.current
     setLoading(true)
     try {
-      const res = await fetch(
-        `/api/develops?bbox=${bbox}&level=${map.getLevel()}` +
-          `${types ? `&types=${types}` : ''}${stages ? `&stages=${stages}` : ''}`,
-      )
+      // 축소 상태에서는 개별 구역 대신 지역별 개수만 받는다.
+      // 지오메트리를 아예 안 내려받으므로 응답도 훨씬 가볍다.
+      if (lv >= CLUSTER_MIN_LEVEL) {
+        const by = lv >= GU_CLUSTER_LEVEL ? 'gu' : 'dong'
+        const res = await fetch(`/api/develops/clusters?bbox=${bbox}&by=${by}${filterQs}`)
+        const data: { clusters?: Cluster[]; total?: number } = await res.json()
+        if (seq !== fetchSeqRef.current) return
+        if (sig !== filterSigRef.current) return
+        setClusters(data.clusters ?? [])
+        setDevelops([])
+        setTotalInView(data.total ?? 0)
+        setTruncated(false)
+        setWithStage((data.clusters ?? []).reduce((s, c) => s + c.withStage, 0))
+        return
+      }
+
+      const res = await fetch(`/api/develops?bbox=${bbox}&level=${lv}${filterQs}`)
       const data: DevelopsResponse = await res.json()
       // 늦게 도착한 이전 요청이 최신 결과를 덮어쓰지 않도록 한다
       if (seq !== fetchSeqRef.current) return
       // 필터가 바뀐 뒤 도착한 구(舊) 조건 응답은 버린다
       if (sig !== filterSigRef.current) return
+      setClusters([])
       setDevelops(data.develops ?? [])
       setTotalInView(data.total ?? 0)
       setTruncated(!!data.truncated)
@@ -351,6 +393,66 @@ export default function MapView() {
       }
     })
   }, [ready, develops, level])
+
+  /* ─────────────── 3-b. 지역별 집계 배지 (축소 뷰) ─────────────── */
+  useEffect(() => {
+    if (!ready) return
+    const kakao = window.kakao
+    const map = mapRef.current
+
+    clusterOverlaysRef.current.forEach((o) => o.setMap(null))
+    clusterOverlaysRef.current = []
+    if (!clusters.length) return
+
+    // 배지끼리도 겹치면 못 읽는다. 개수가 많은 지역부터 자리를 잡는다.
+    const projection = map.getProjection()
+    const placed: { l: number; t: number; r: number; b: number }[] = []
+    const GAP = 4
+
+    for (const c of clusters) {
+      const pos = new kakao.maps.LatLng(c.center[1], c.center[0])
+      const pt = projection.containerPointFromCoords(pos)
+      const w = Math.max(52, textWidth(c.label, CLUSTER_FONT) + 20)
+      const h = 46
+      const box = {
+        l: pt.x - w / 2 - GAP,
+        t: pt.y - h / 2 - GAP,
+        r: pt.x + w / 2 + GAP,
+        b: pt.y + h / 2 + GAP,
+      }
+      if (placed.some((p) => !(box.r <= p.l || p.r <= box.l || box.b <= p.t || p.b <= box.t))) {
+        continue
+      }
+      placed.push(box)
+
+      const overlay = new kakao.maps.CustomOverlay({
+        map,
+        position: pos,
+        yAnchor: 0.5,
+        zIndex: 3,
+        clickable: true,
+        content: `<button type="button" class="zone-cluster" data-lat="${c.center[1]}" data-lng="${c.center[0]}">
+            <span class="zone-cluster__name">${escapeHtml(c.label)}</span>
+            <span class="zone-cluster__count">${c.count}</span>
+          </button>`,
+      })
+      clusterOverlaysRef.current.push(overlay)
+    }
+
+    // CustomOverlay 안의 DOM은 React 밖이라 이벤트를 직접 건다.
+    // 위임으로 걸면 오버레이가 지워질 때 핸들러도 같이 사라진다.
+    const container = map.getNode() as HTMLElement
+    const onClick = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement)?.closest?.('.zone-cluster') as HTMLElement | null
+      if (!el) return
+      e.preventDefault()
+      e.stopPropagation()
+      map.setCenter(new kakao.maps.LatLng(Number(el.dataset.lat), Number(el.dataset.lng)))
+      map.setLevel(CLUSTER_ZOOM_TO)
+    }
+    container.addEventListener('click', onClick)
+    return () => container.removeEventListener('click', onClick)
+  }, [ready, clusters])
 
   /* ─────────────── 4. 필지(지적도·노후도) ─────────────── */
   const drawParcels = useCallback(async () => {
@@ -637,10 +739,17 @@ export default function MapView() {
       <div className="relative flex">
         <Sidebar
           develops={develops}
+          clusters={clusters}
           total={totalInView}
           truncated={truncated}
           loading={loading}
           onSelect={focusDevelop}
+          onSelectCluster={(lng, lat) => {
+            const map = mapRef.current
+            if (!map) return
+            map.setCenter(new window.kakao.maps.LatLng(lat, lng))
+            map.setLevel(CLUSTER_ZOOM_TO)
+          }}
           onOpenPanel={setPanel}
           favoriteCount={favCount}
           onSearchZone={(id, bbox) => {
