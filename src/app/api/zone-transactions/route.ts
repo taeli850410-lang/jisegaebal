@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAllDevelops } from '@/lib/server/developStore'
-import { fetchTransactions, median, type Transaction } from '@/lib/server/molit'
+import { fetchTransactions, median, type Kind, type Transaction } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
 import { outerRings } from '@/lib/types'
 
@@ -16,7 +16,10 @@ export const maxDuration = 60
  * 지번 좌표는 변하지 않아 캐시가 잘 먹는다(최초 조회만 느리고 이후는 즉시).
  */
 
-const SERIES_MONTHS = 6
+/** 스파크라인은 6개월이면 충분하지만, 365일 집계는 그만큼 더 받아야 한다 */
+function monthsFor(days: number) {
+  return Math.max(6, Math.ceil(days / 30) + 1)
+}
 
 function pointInRing(lng: number, lat: number, ring: number[][]): boolean {
   let inside = false
@@ -50,7 +53,14 @@ export interface ZoneTransactions {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const gu = searchParams.get('gu') ?? ''
-  const days = Math.min(90, Math.max(7, Number(searchParams.get('days') ?? 30) || 30))
+  const days = Math.min(365, Math.max(7, Number(searchParams.get('days') ?? 30) || 30))
+  // 가격순은 "다세대 기준"처럼 유형을 좁혀야 지표가 흔들리지 않는다
+  const kinds = (searchParams.get('kinds')?.split(',').filter(Boolean) ?? [
+    'villa',
+    'house',
+    'land',
+  ]) as Kind[]
+  const SERIES_MONTHS = monthsFor(days)
 
   if (!gu) return NextResponse.json({ error: 'gu 파라미터가 필요합니다.' }, { status: 400 })
   if (!process.env.DATA_GO_KR_SERVICE_KEY) {
@@ -60,7 +70,7 @@ export async function GET(request: Request) {
   const zones = getAllDevelops().filter((d) => d.gu === gu)
   if (!zones.length) return NextResponse.json({ gu, days, zones: [], total: 0 })
 
-  const all = await fetchTransactions(gu, SERIES_MONTHS)
+  const all = await fetchTransactions(gu, SERIES_MONTHS, kinds)
 
   // 지번 좌표 확보 (캐시 우선). 예산을 둬 한 요청이 API를 과하게 쓰지 않게 한다.
   const uniqueQueries = [...new Set(all.map((t) => `서울 ${gu} ${t.dong} ${t.jibun}`))]

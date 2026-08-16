@@ -3,17 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getFavorites, getViews, subscribeStore } from '@/lib/userStore'
 import ZoneDealCard, { type ZoneDeals } from './panels/ZoneDealCard'
-import Sparkline from './panels/Sparkline'
-import {
-  Empty,
-  PanelHint,
-  RankRow,
-  SegTabs,
-  StageBadge,
-  TypeBadge,
-  formatPerPyeong,
-  type DevelopBrief,
-} from './panels/shared'
+import HotPanel from './panels/HotPanel'
+import { Empty, PanelHint, RankRow, StageBadge, TypeBadge, type DevelopBrief } from './panels/shared'
 
 export type PanelKey = 'hot' | 'favorites' | 'new' | 'transactions' | 'listings' | 'auctions'
 export type { DevelopBrief }
@@ -66,21 +57,17 @@ export default function SidePanel({
   const [gus, setGus] = useState<{ gu: string; count: number }[]>([])
   const [gu, setGu] = useState('')
 
-  /* 인기 */
-  const [hotTab, setHotTab] = useState<'volume' | 'views' | 'price'>('views')
-  const [hotDays, setHotDays] = useState<7 | 30 | 90>(30)
-
-  /** 순위 목록은 상위 10위까지만 보여주고 필요할 때 펼친다 */
-  const TOP_N = 10
-  const [expanded, setExpanded] = useState(false)
-  useEffect(() => setExpanded(false), [panel, hotTab, hotDays, gu])
-  const cut = <T,>(list: T[]) => (expanded ? list : list.slice(0, TOP_N))
-
   /* 관심 */
   const [favSort, setFavSort] = useState<'recent' | 'added' | 'name'>('added')
 
   /* 실거래 */
   const [days, setDays] = useState<7 | 30>(30)
+
+  /** 순위 목록은 상위 10위까지만 보여주고 필요할 때 펼친다 (인기 탭은 HotPanel이 자체 관리) */
+  const TOP_N = 10
+  const [expanded, setExpanded] = useState(false)
+  useEffect(() => setExpanded(false), [panel, gu, days])
+  const cut = <T,>(list: T[]) => (expanded ? list : list.slice(0, TOP_N))
   const [zoneDeals, setZoneDeals] = useState<ZoneDeals[]>([])
   const [zdLoading, setZdLoading] = useState(false)
   const [zdMeta, setZdMeta] = useState<{ matched: number; fetched: number } | null>(null)
@@ -104,20 +91,16 @@ export default function SidePanel({
       .catch(() => {})
   }, [panel, gus.length])
 
-  /* 구역별 실거래 (실거래 패널 + 인기 거래량/가격순이 함께 쓴다) */
-  const needsZoneDeals =
-    (panel === 'transactions' && !!gu) || (panel === 'hot' && hotTab !== 'views' && !!gu)
-
+  /* 구역별 실거래 (지역별 실거래 패널) */
   useEffect(() => {
-    if (!needsZoneDeals) {
+    if (panel !== 'transactions' || !gu) {
       setZoneDeals([])
       setZdMeta(null)
       return
     }
     let cancelled = false
     setZdLoading(true)
-    const d = panel === 'hot' ? hotDays : days
-    fetch(`/api/zone-transactions?gu=${encodeURIComponent(gu)}&days=${d}`)
+    fetch(`/api/zone-transactions?gu=${encodeURIComponent(gu)}&days=${days}`)
       .then((r) => r.json())
       .then((j) => {
         if (cancelled) return
@@ -129,7 +112,7 @@ export default function SidePanel({
     return () => {
       cancelled = true
     }
-  }, [needsZoneDeals, gu, days, hotDays, panel])
+  }, [panel, gu, days])
 
   /* 신규 · 관심 · 인기(조회순) */
   useEffect(() => {
@@ -156,12 +139,6 @@ export default function SidePanel({
           let list = await fetchByIds(sorted.map((f) => f.id))
           if (favSort === 'name') list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'ko'))
           if (!cancelled) setItems(list)
-        } else if (panel === 'hot' && hotTab === 'views') {
-          const top = getViews()
-            .sort((a, b) => b.count - a.count || b.lastAt - a.lastAt)
-            .slice(0, 30)
-          const list = await fetchByIds(top.map((v) => v.id))
-          if (!cancelled) setItems(list)
         } else if (!cancelled) {
           setItems([])
         }
@@ -173,16 +150,7 @@ export default function SidePanel({
     return () => {
       cancelled = true
     }
-  }, [panel, favSort, hotTab, tick, fetchByIds])
-
-  const views = getViews()
-
-  /* 인기 - 거래량순 / 가격순은 구역별 실거래에서 파생한다 */
-  const hotRanked = [...zoneDeals].sort((a, b) =>
-    hotTab === 'volume'
-      ? b.dealCount - a.dealCount
-      : (b.medianPerPyeong ?? 0) - (a.medianPerPyeong ?? 0),
-  )
+  }, [panel, favSort, tick, fetchByIds])
 
   const GuSelect = (
     <select
@@ -221,49 +189,13 @@ export default function SidePanel({
 
       {/* ── 인기 ── */}
       {panel === 'hot' && (
-        <>
-          <SegTabs
-            value={hotTab}
-            onChange={setHotTab}
-            options={[
-              { key: 'volume', label: '거래량순', icon: '📊' },
-              { key: 'views', label: '조회순', icon: '🔥' },
-              { key: 'price', label: '가격순', icon: '💠' },
-            ]}
-          />
-          {hotTab === 'views' ? (
-            <PanelHint
-              title="가장 많이 조회된 구역"
-              desc="이 브라우저에서 열어본 횟수 기준입니다. 전체 이용자 집계는 계정·집계 서버가 필요합니다."
-            />
-          ) : (
-            <>
-              <div className="px-4 pb-2">
-                <div className="flex gap-2">{GuSelect}</div>
-                <div className="mt-2">
-                  <SegTabs
-                    size="sm"
-                    value={hotDays}
-                    onChange={setHotDays}
-                    options={[
-                      { key: 7, label: '7일' },
-                      { key: 30, label: '30일' },
-                      { key: 90, label: '90일' },
-                    ]}
-                  />
-                </div>
-              </div>
-              <PanelHint
-                title={hotTab === 'volume' ? '가장 많이 거래된 구역' : '대지평당가가 높은 구역'}
-                desc={
-                  hotTab === 'volume'
-                    ? '선택 기간 내 구역 안에서 신고된 실거래 건수 기준입니다.'
-                    : '선택 기간 실거래의 대지평당가 중앙값 기준입니다.'
-                }
-              />
-            </>
-          )}
-        </>
+        <HotPanel
+          gus={gus}
+          onSelect={onSelect}
+          onFocus={onFocus}
+          fetchByIds={fetchByIds}
+          storeTick={tick}
+        />
       )}
 
       {/* ── 관심 ── */}
@@ -310,16 +242,20 @@ export default function SidePanel({
           {gu && (
             <div className="mt-2.5 flex items-center justify-between">
               <p className="text-sm font-bold">{gu} 실거래</p>
-              <div className="flex w-32 gap-1">
-                <SegTabs
-                  size="sm"
-                  value={days}
-                  onChange={setDays}
-                  options={[
-                    { key: 7, label: '7일' },
-                    { key: 30, label: '30일' },
-                  ]}
-                />
+              <div className="flex gap-1">
+                {([7, 30] as const).map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setDays(d)}
+                    className={`rounded-lg px-3 py-1 text-xs font-bold ${
+                      days === d
+                        ? 'bg-indigo-600 text-white'
+                        : 'border border-gray-200 bg-white text-gray-500'
+                    }`}
+                  >
+                    {d}일
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -337,86 +273,6 @@ export default function SidePanel({
         )}
         {panel === 'auctions' && !loading && (
           <Empty text="경매 데이터는 아직 연동되지 않았습니다.\n법원경매정보 수집 연동이 필요합니다." />
-        )}
-
-        {/* 인기 - 조회순 */}
-        {panel === 'hot' && hotTab === 'views' && !loading && (
-          <>
-            {items.length === 0 && (
-              <Empty text="아직 열어본 구역이 없습니다. 지도에서 구역을 눌러보세요." />
-            )}
-            {cut(items).map((d, i) => (
-              <RankRow
-                key={d.id}
-                rank={i + 1}
-                d={d}
-                onSelect={onSelect}
-                right={
-                  <span className="shrink-0 text-sm font-bold text-orange-500">
-                    {views.find((v) => v.id === d.id)?.count ?? 0}회
-                  </span>
-                }
-              />
-            ))}
-            <MoreButton total={items.length} shown={cut(items).length} onMore={() => setExpanded(true)} />
-          </>
-        )}
-
-        {/* 인기 - 거래량순 / 가격순 */}
-        {panel === 'hot' && hotTab !== 'views' && !zdLoading && (
-          <>
-            {!gu && <Empty text="구/군을 선택하면 순위를 계산합니다." />}
-            {gu && hotRanked.length === 0 && (
-              <Empty text="선택 기간에 구역 안에서 신고된 거래가 없습니다." />
-            )}
-            {cut(hotRanked).map((z, i) => (
-              <button
-                key={z.id}
-                onClick={() => onFocus(z.bbox, z.id)}
-                className="flex w-full items-center gap-2 border-b border-gray-50 px-4 py-2.5 text-left hover:bg-gray-50"
-              >
-                <span className="w-5 shrink-0 text-center text-xs font-bold text-gray-400">
-                  {i + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <TypeBadge code={z.projectType} />
-                    <span className="truncate text-sm font-bold">{z.name}</span>
-                  </div>
-                  <div className="mt-0.5">
-                    <StageBadge stage={z.stage} canonical={z.canonicalStage} />
-                  </div>
-                </div>
-
-                {/* 순위 숫자만으로는 흐름이 안 보여 6개월 추이를 함께 둔다 */}
-                <Sparkline series={z.series} width={56} height={24} />
-
-                <div className="w-16 shrink-0 text-right">
-                  <p className="text-sm font-bold text-indigo-600">
-                    {hotTab === 'volume'
-                      ? `${z.dealCount}건`
-                      : z.medianPerPyeong
-                        ? `${formatPerPyeong(z.medianPerPyeong)}/평`
-                        : '—'}
-                  </p>
-                  {z.changePct != null && z.changePct !== 0 && (
-                    <p
-                      className={`text-[10px] font-semibold ${
-                        z.changePct > 0 ? 'text-rose-500' : 'text-blue-500'
-                      }`}
-                    >
-                      {z.changePct > 0 ? '↑' : '↓'} {Math.abs(z.changePct)}%
-                    </p>
-                  )}
-                </div>
-              </button>
-            ))}
-            <MoreButton
-              total={hotRanked.length}
-              shown={cut(hotRanked).length}
-              onMore={() => setExpanded(true)}
-            />
-          </>
         )}
 
         {/* 관심 */}
