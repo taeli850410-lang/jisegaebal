@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { PROJECT_TYPES, PROJECT_TYPE_MAP } from '@/lib/taxonomy'
@@ -30,9 +30,12 @@ const HEADINGS: Record<Tab, { icon: string; title: string; desc: string }> = {
   price: {
     icon: '💠',
     title: '대지평당가가 높은 구역',
-    desc: '대지평당가가 높은 구역을 확인해보세요 (최근 90일 다세대 실거래 기준)',
+    desc: '최근 90일 다세대 실거래의 대지평당가 중앙값 기준 (표본 3건 이상만 집계)',
   },
 }
+
+/** 표본이 1~2건이면 시세가 아니라 우연이라 랭킹에서 제외한다 */
+const MIN_PRICE_SAMPLE = 3
 
 const PERIODS: Record<Tab, { key: number; label: string }[]> = {
   volume: [
@@ -132,6 +135,8 @@ export default function HotPanel({
     projectType: string
     stage: string | null
     value: string
+    /** 가격순에서 중앙값 산출 표본 수 — 근거를 숨기지 않는다 */
+    sample?: number | null
     changePct: number | null
     series: { ym: string; value: number | null }[] | null
     open: () => void
@@ -155,6 +160,8 @@ export default function HotPanel({
   } else {
     const sorted = [...zones]
       .filter((z) => !type || z.projectType === type)
+      // 가격순은 표본이 너무 적으면 시세가 아니라 우연이다. 최소 3건을 요구한다.
+      .filter((z) => tab !== 'price' || (z.priceSampleCount ?? 0) >= MIN_PRICE_SAMPLE)
       .sort((a, b) =>
         tab === 'volume'
           ? b.dealCount - a.dealCount
@@ -165,6 +172,7 @@ export default function HotPanel({
       name: z.name,
       projectType: z.projectType,
       stage: z.stage,
+      sample: tab === 'price' ? (z.priceSampleCount ?? 0) : null,
       value:
         tab === 'volume'
           ? `${z.dealCount}건`
@@ -273,10 +281,10 @@ export default function HotPanel({
           <Empty text="지역을 선택하면 순위를 계산합니다." />
         )}
         {!loading && tab === 'views' && rows.length === 0 && (
-          <Empty text="아직 열어본 구역이 없습니다.\n지도에서 구역을 눌러보세요." />
+          <Empty text={"아직 열어본 구역이 없습니다.\n지도에서 구역을 눌러보세요."} />
         )}
         {!loading && tab !== 'views' && gu && rows.length === 0 && (
-          <Empty text="선택 조건에 해당하는 거래가 없습니다.\n기간을 넓히거나 사업종류를 바꿔보세요." />
+          <Empty text={"선택 조건에 해당하는 거래가 없습니다.\n기간을 넓히거나 사업종류를 바꿔보세요."} />
         )}
 
         {!loading &&
@@ -320,6 +328,9 @@ export default function HotPanel({
                     >
                       {r.changePct > 0 ? '↑' : '↓'} {Math.abs(r.changePct)}%
                     </p>
+                  )}
+                  {r.sample != null && (
+                    <p className="text-[10px] text-gray-400">표본 {r.sample}건</p>
                   )}
                 </div>
               </button>

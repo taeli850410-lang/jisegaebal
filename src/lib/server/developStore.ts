@@ -53,8 +53,11 @@ export interface StageRecord {
   bizType: string
   stage: string
   opStage: string
-  /** point=폴리곤 포함, near=근접, name/name~=이름 매칭 — 신뢰도가 다르다 */
-  matchBy: 'point' | 'near' | 'name' | 'name~'
+  /**
+   * id=안건번호 정확 조인(확정), point=폴리곤 포함, near=근접,
+   * name/name~=이름 매칭 — 뒤로 갈수록 신뢰도가 낮다.
+   */
+  matchBy: 'id' | 'point' | 'near' | 'name' | 'name~'
 }
 
 let cache: StoredDevelop[] | null = null

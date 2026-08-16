@@ -141,6 +141,15 @@ export function PanelHint({ title, desc }: { title: string; desc: string }) {
   )
 }
 
+/**
+ * 빈 상태 문구.
+ * 줄바꿈은 실제 개행 문자로 넘기고 whitespace-pre-line 으로 렌더한다.
+ * JSX 속성에 text="a\nb" 처럼 쓰면 역슬래시가 그대로 화면에 보인다.
+ */
 export function Empty({ text }: { text: string }) {
-  return <p className="px-4 py-10 text-center text-sm leading-relaxed text-gray-400">{text}</p>
+  return (
+    <p className="px-4 py-10 text-center text-sm leading-relaxed whitespace-pre-line text-gray-400">
+      {text}
+    </p>
+  )
 }

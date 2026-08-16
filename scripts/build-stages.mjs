@@ -22,25 +22,12 @@ if (!REST_KEY) {
   process.exit(1)
 }
 
-/* ─────────── 1. 엑셀 파싱 ─────────── */
-const wb = XLSX.readFile(XLS)
-const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' })
-
-const headerIdx = rows.findIndex((r) => r[0] === '번호')
-const sites = rows
-  .slice(headerIdx + 1)
-  .filter((r) => r[1] && r[3])
-  .map((r) => ({
-    gu: String(r[1]).trim(),
-    bizType: String(r[2]).trim(),
-    name: String(r[3]).trim(),
-    jibun: String(r[4]).trim(),
-    stage: String(r[5]).trim(),
-    opKind: String(r[6]).trim(),
-    opStage: String(r[7]).trim(),
-  }))
-
-console.log(`사업장 ${sites.length}건 파싱`)
+/* ─────────── 1. 사업장 목록 ─────────── */
+// 엑셀에는 안건번호(wtnncSn)가 없어 HTML 수집본을 쓴다 (scripts/fetch-cleanup-sites.mjs)
+const sites = JSON.parse(readFileSync('data/cleanup-sites.json', 'utf-8')).filter(
+  (s) => s.gu && s.name,
+)
+console.log(`사업장 ${sites.length}건 (안건번호 ${sites.filter((s) => s.wtnncSn).length}건)`)
 
 /* ─────────── 2. 지오코딩 (캐시) ─────────── */
 const cache = existsSync(CACHE) ? JSON.parse(readFileSync(CACHE, 'utf-8')) : {}
@@ -188,11 +175,41 @@ for (const d of develops) {
 }
 
 /* ─────────── 4. 실행 ─────────── */
+/**
+ * 안건번호(wtnncSn) 색인.
+ * 이게 있으면 이름·좌표 추정 없이 확정 연결이 되므로 가장 먼저 본다.
+ */
+const byWtnnc = new Map()
+for (const d of develops) {
+  if (d.wtnncSn && !byWtnnc.has(d.wtnncSn)) byWtnnc.set(d.wtnncSn, d)
+}
+
 const out = []
-const stats = { point: 0, name: 0, 'name~': 0, near: 0, none: 0, geocodeFail: 0 }
+const stats = { id: 0, point: 0, name: 0, 'name~': 0, near: 0, none: 0, geocodeFail: 0 }
 
 for (let i = 0; i < sites.length; i++) {
   const site = sites[i]
+
+  // ① 안건번호 정확 조인 — 지오코딩조차 필요 없다
+  if (site.wtnncSn && byWtnnc.has(site.wtnncSn)) {
+    const hit = byWtnnc.get(site.wtnncSn)
+    stats.id++
+    out.push({
+      developId: hit.id,
+      developName: hit.name,
+      siteName: site.name,
+      gu: site.gu,
+      jibun: site.jibun,
+      bizType: site.bizType,
+      stage: site.stage,
+      opStage: '',
+      matchBy: 'id',
+      lng: null,
+      lat: null,
+    })
+    continue
+  }
+
   const pt = await geocode(site)
   if (!pt) stats.geocodeFail++
 
@@ -240,7 +257,7 @@ for (let i = 0; i < sites.length; i++) {
       jibun: site.jibun,
       bizType: site.bizType,
       stage: site.stage,
-      opStage: site.opStage,
+      opStage: '',
       matchBy,
       lng: pt?.[0] ?? null,
       lat: pt?.[1] ?? null,
@@ -277,7 +294,8 @@ writeFileSync(OUT, JSON.stringify(merged))
 console.log(`\n지오코딩 API 호출 ${apiCalls}회 (캐시 적중분 제외)`)
 console.log(`지오코딩 실패 ${stats.geocodeFail}건`)
 console.log(
-  `매칭: 포함 ${stats.point} / 근접 ${stats.near} / 이름일치 ${stats.name} / 이름부분 ${stats['name~']} / 실패 ${stats.none}`,
+  `매칭: 안건번호 ${stats.id} / 포함 ${stats.point} / 근접 ${stats.near} / ` +
+    `이름일치 ${stats.name} / 이름부분 ${stats['name~']} / 실패 ${stats.none}`,
 )
 console.log(`매칭률 ${(((sites.length - stats.none) / sites.length) * 100).toFixed(1)}%`)
 console.log(`구역 기준 중복 정리 후 ${merged.length}개 구역에 진행단계 부여`)

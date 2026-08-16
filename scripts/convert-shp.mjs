@@ -159,6 +159,11 @@ while (true) {
     areaM2: Math.round(p.DGM_AR ?? 0),
     /** 고시 일련번호 — 고시/공고 아카이브와 연결하는 키 */
     noticeSn: p.NTFC_SN ?? null,
+    /**
+     * 안건 일련번호. 정비몽땅 사업장검색의 mapOpenPopup(wtnncSn) 인자와 같은 체계라
+     * 이름·좌표 매칭 없이 사업장과 정확히 연결할 수 있는 유일한 키다.
+     */
+    wtnncSn: p.WTNNC_SN ?? null,
     sigungu: p.SIGNGU_SE ?? null,
     bbox,
     geometry,
@@ -185,6 +190,8 @@ function mergeByPresentSn(list) {
       coordinates: [...toParts(g.geometry), ...toParts(d.geometry)],
     }
     g.areaM2 += d.areaM2
+    // 조각마다 안건번호가 비어 있을 수 있어 하나라도 있으면 살린다
+    g.wtnncSn = g.wtnncSn ?? d.wtnncSn
     g.bbox = [
       Math.min(g.bbox[0], d.bbox[0]),
       Math.min(g.bbox[1], d.bbox[1]),

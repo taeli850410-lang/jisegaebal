@@ -8,6 +8,7 @@ import DealChart from './detail/DealChart'
 
 /** 매칭 방식에 따라 신뢰도가 다르다 — 숨기지 않고 드러낸다 */
 const MATCH_LABEL: Record<string, { text: string; grade: 'A' | 'B' | 'C' }> = {
+  id: { text: '안건번호 정확 일치', grade: 'A' },
   point: { text: '구역 내 대표지번 일치', grade: 'A' },
   near: { text: '대표지번 근접(50m 이내)', grade: 'B' },
   name: { text: '사업장명 일치', grade: 'B' },

@@ -90,25 +90,43 @@ export function stageColor(canonicalStage: string | null | undefined): string {
  * 필터·집계는 정규화 단계로 하고, 화면에는 원본 라벨을 그대로 보여준다.
  */
 export const RAW_STAGE_TO_CANONICAL: Record<string, string> = {
+  // 추진중
   '정비계획 수립': 'prepare',
   '추진위구성': 'prepare',
   '안전진단': 'safety_check',
+  '안전진단(1차)': 'safety_check',
+
+  // 구역지정 — 도시계획심의는 정비구역 지정을 위한 심의 절차다
   '정비구역지정': 'zone_designated',
+  '도시계획심의': 'zone_designated',
+
+  // 추진위 ~ 조합설립 전 (조합 구성 절차는 모두 추진위승인 단계로 본다)
   '추진위원회승인': 'committee',
   '조합원 모집신고': 'committee',
   '조합규약작성': 'committee',
   '조합창립총회': 'committee',
+
+  // 조합설립 ~ 사업시행인가 전 (각종 심의는 사업시행인가 준비 절차)
   '조합설립인가': 'union',
   '지구단위계획수립/건축심의/교통심의': 'union',
+
   '사업시행인가': 'impl_approval',
+  '사업계획승인': 'impl_approval',
+
   '관리처분인가': 'mgmt_disposal',
+
+  // 관리처분 이후 실물 공사 구간
   '철거': 'construction',
+  '철거 및 착공': 'construction',
   '착공': 'construction',
   '분양': 'construction',
+
+  // 준공 이후 (조합 정리 절차 포함)
   '준공인가': 'completed',
   '이전고시': 'completed',
   '조합해산': 'completed',
   '조합청산': 'completed',
+  '청산 및 조합해산': 'completed',
 }
 
 /** 사업종류별 코호트 평균 단계 소요기간(개월) — "평균 15개월" 비교용 (현재는 예시값) */

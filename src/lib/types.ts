@@ -16,8 +16,8 @@ export interface ApiDevelop {
   canonicalStage: string | null
   stageSiteName: string | null
   stageBizType: string | null
-  /** point=폴리곤 포함, near=근접, name/name~=이름 매칭 */
-  stageMatchBy: 'point' | 'near' | 'name' | 'name~' | null
+  /** id=안건번호 정확 조인, point=폴리곤 포함, near=근접, name/name~=이름 매칭 */
+  stageMatchBy: 'id' | 'point' | 'near' | 'name' | 'name~' | null
   gu: string | null
   bbox: [number, number, number, number]
   geometry: Geometry

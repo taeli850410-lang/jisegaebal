@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useState } from 'react'
 import { getFavorites, getViews, subscribeStore } from '@/lib/userStore'
@@ -269,17 +269,17 @@ export default function SidePanel({
         )}
 
         {panel === 'listings' && !loading && (
-          <Empty text="매물 데이터는 아직 연동되지 않았습니다.\n중개사 매물 등록 또는 제휴 연동이 필요합니다." />
+          <Empty text={"매물 데이터는 아직 연동되지 않았습니다.\n중개사 매물 등록 또는 제휴 연동이 필요합니다."} />
         )}
         {panel === 'auctions' && !loading && (
-          <Empty text="경매 데이터는 아직 연동되지 않았습니다.\n법원경매정보 수집 연동이 필요합니다." />
+          <Empty text={"경매 데이터는 아직 연동되지 않았습니다.\n법원경매정보 수집 연동이 필요합니다."} />
         )}
 
         {/* 관심 */}
         {panel === 'favorites' && !loading && (
           <>
             {items.length === 0 && (
-              <Empty text="관심 구역이 없습니다.\n구역 상세에서 ♡를 눌러 추가하세요." />
+              <Empty text={"관심 구역이 없습니다.\n구역 상세에서 ♡를 눌러 추가하세요."} />
             )}
             {items.map((d) => (
               <button
@@ -336,7 +336,7 @@ export default function SidePanel({
           <>
             {!gu && <Empty text="구/군을 선택하면 구역별 실거래를 보여줍니다." />}
             {gu && zoneDeals.length === 0 && (
-              <Empty text="선택 기간에 구역 안에서 신고된 거래가 없습니다.\n기간을 넓혀보세요." />
+              <Empty text={"선택 기간에 구역 안에서 신고된 거래가 없습니다.\n기간을 넓혀보세요."} />
             )}
             {cut(zoneDeals).map((z) => (
               <ZoneDealCard key={z.id} zone={z} onOpen={onFocus} />

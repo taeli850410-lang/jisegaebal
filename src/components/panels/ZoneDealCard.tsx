@@ -27,6 +27,7 @@ export interface ZoneDeals {
   }[]
   dealCount: number
   medianPerPyeong: number | null
+  priceSampleCount?: number
   changePct: number | null
   series: { ym: string; value: number | null }[]
 }

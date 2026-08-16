@@ -44,6 +44,8 @@ export interface ZoneTransactions {
   dealCount: number
   /** 기간 내 대지평당가 중앙값 */
   medianPerPyeong: number | null
+  /** 중앙값 산출에 쓰인 표본 수 — 1~2건이면 시세로 보기 어렵다 */
+  priceSampleCount: number
   /** 직전 동일 기간 대비 변화율(%) */
   changePct: number | null
   /** 월별 중앙 대지평당가 (오래된 순) — 스파크라인용 */
@@ -116,7 +118,8 @@ export async function GET(request: Request) {
     if (!inPeriod.length) continue
 
     const prevPeriod = deals.filter((d) => d.dealDate >= prevCut && d.dealDate < cut)
-    const cur = median(inPeriod.map((d) => d.pricePerLandPyeong ?? NaN))
+    const priceable = inPeriod.filter((d) => d.pricePerLandPyeong != null)
+    const cur = median(priceable.map((d) => d.pricePerLandPyeong!))
     const prev = median(prevPeriod.map((d) => d.pricePerLandPyeong ?? NaN))
 
     result.push({
@@ -130,6 +133,7 @@ export async function GET(request: Request) {
       deals: inPeriod.slice(0, 20),
       dealCount: inPeriod.length,
       medianPerPyeong: cur,
+      priceSampleCount: priceable.length,
       changePct: cur && prev ? Math.round(((cur - prev) / prev) * 1000) / 10 : null,
       series: ymKeys.map((ym) => ({
         ym,
