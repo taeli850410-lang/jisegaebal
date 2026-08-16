@@ -30,7 +30,7 @@ const HEADINGS: Record<Tab, { icon: string; title: string; desc: string }> = {
   price: {
     icon: '💠',
     title: '대지평당가가 높은 구역',
-    desc: '최근 90일 다세대 실거래의 대지평당가 중앙값 기준 (표본 3건 이상만 집계)',
+    desc: '다세대 실거래의 대지평당가 중앙값 기준 (표본 3건 이상만 집계)',
   },
 }
 
@@ -41,15 +41,23 @@ const PERIODS: Record<Tab, { key: number; label: string }[]> = {
   volume: [
     { key: 30, label: '30일' },
     { key: 90, label: '90일' },
-    { key: 365, label: '365일' },
+    { key: 365, label: '1년' },
+  ],
+  price: [
+    { key: 30, label: '30일' },
+    { key: 90, label: '90일' },
+    { key: 365, label: '1년' },
   ],
   views: [
     { key: 0, label: '실시간' },
-    { key: 7, label: '7일' },
     { key: 30, label: '30일' },
+    { key: 90, label: '90일' },
+    { key: 365, label: '1년' },
   ],
-  price: [],
 }
+
+/** 지역 선택에서 "서울 전체"를 가리키는 값 */
+const ALL_GU = 'all'
 
 export default function HotPanel({
   gus,
@@ -96,9 +104,8 @@ export default function HotPanel({
     }
     let cancelled = false
     setLoading(true)
-    const days = tab === 'price' ? 90 : period
     const kinds = tab === 'price' ? '&kinds=villa' : ''
-    fetch(`/api/zone-transactions?gu=${encodeURIComponent(gu)}&days=${days}${kinds}`)
+    fetch(`/api/zone-transactions?gu=${encodeURIComponent(gu)}&days=${period}${kinds}`)
       .then((r) => r.json())
       .then((j) => !cancelled && setZones(j.zones ?? []))
       .catch(() => !cancelled && setZones([]))
@@ -251,6 +258,7 @@ export default function HotPanel({
           className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs disabled:bg-gray-50 disabled:text-gray-300"
         >
           <option value="">{tab === 'views' ? '전국' : '지역 선택'}</option>
+          {tab !== 'views' && <option value={ALL_GU}>서울 전체</option>}
           {gus.map((g) => (
             <option key={g.gu} value={g.gu}>
               {g.gu}

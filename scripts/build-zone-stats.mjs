@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 구역별 세대현황·노후도·개발여건 산출.
  *
  * 두 원천을 필지 단위로 붙인다.
@@ -580,6 +580,13 @@ function compute(zone, parcels, buildingsByLd, recapsByLd, landChars) {
       // 지하층이 있는 주거용 동 — 반지하의 대리지표다 (층별개요를 봐야 정확하다)
       withBasement: homes.filter((b) => num(b.ugrndFlrCnt) > 0).length,
       residentialBuildings: homes.length,
+      /*
+       * 반지하 분모는 주거동이 아니라 전체 동수를 쓴다.
+       * 근린생활시설 지하 1층에 주거가 있는 경우가 있어, 주거동만 세면
+       * 분자가 분모를 넘는 구역이 나온다(21개 있었다).
+       * 벤치마크도 접도율과 같은 분모(전체 동)를 쓴다.
+       */
+      totalBuildings: blds.length,
       householdsPerHa: ha > 0 ? Math.round(totalHouseholds / ha) : null,
       // 접도율 — 건물이 있는 필지 중 폭 4m 이상 도로에 접한 비율
       abutting,
@@ -623,6 +630,31 @@ targets = targets.sort((a, b) => b.areaM2 - a.areaM2)
 targets = targets.slice(0, LIMIT)
 
 console.log(`대상 ${targets.length}개 구역 (기존 ${Object.keys(stats).length}개)`)
+
+/**
+ * 결과 저장.
+ * OneDrive 동기화가 파일을 잡고 있으면 쓰기가 실패한다. 잠깐 기다렸다 다시 시도하고,
+ * 그래도 안 되면 다음 저장 시점으로 미룬다 — 여기서 배치가 죽으면 안 된다.
+ */
+function saveStats() {
+  mkdirSync('data', { recursive: true })
+  for (let a = 0; a < 4; a++) {
+    try {
+      writeFileSync(OUT, JSON.stringify(stats))
+      return true
+    } catch (e) {
+      if (a === 3) {
+        console.warn(`  (저장 실패, 다음에 다시 시도합니다: ${e.code ?? e.message})`)
+        return false
+      }
+      const until = Date.now() + 400 * (a + 1)
+      while (Date.now() < until) {
+        /* 동기화가 놓아줄 때까지 잠깐 */
+      }
+    }
+  }
+  return false
+}
 
 let ok = 0
 for (const [i, zone] of targets.entries()) {
@@ -757,11 +789,13 @@ for (const [i, zone] of targets.entries()) {
       `노후 ${s.aging.now}/${s.aging.denominator} · 과소 ${s.conditions.smallParcels} · ` +
       `접도 ${s.conditions.abutting}/${s.conditions.abuttingBase} · 용적 ${s.actual.far ?? '—'}%`,
   )
-  mkdirSync('data', { recursive: true })
-  writeFileSync(OUT, JSON.stringify(stats))
+  // 구역마다 저장하면 1,400번 쓰게 되고, OneDrive 폴더에서는 동기화가 파일을 잠가
+  // EBUSY/UNKNOWN 으로 배치가 죽는다. 묶어서 드물게 저장한다.
+  if (ok % 25 === 0) saveStats()
   await sleep(200)
 }
 
 persistBld()
+saveStats()
 console.log(`\n완료: ${ok}개 산출 / 누적 ${Object.keys(stats).length}개`)
 console.log(`법정동 건축물대장 캐시: ${Object.keys(bldDisk).length}건`)

@@ -123,6 +123,7 @@ interface ZoneStats {
     abutting?: number
     abuttingBase?: number
     semiBasement?: number
+    totalBuildings?: number
   }
   actual?: {
     far: number | null
@@ -1376,14 +1377,18 @@ export default function DevelopPanel({
                         : []),
                       // 층별개요 파일이 있으면 진짜 반지하, 없으면 지하층 보유로 대체한다
                       stats.conditions.semiBasement != null
-                        ? {
-                            k: '반지하 비율',
-                            v: `${stats.conditions.semiBasement}동 / ${stats.conditions.residentialBuildings}동`,
-                            sub: pct(
-                              stats.conditions.semiBasement,
-                              stats.conditions.residentialBuildings,
-                            ),
-                          }
+                        ? (() => {
+                            // 근린생활시설 지하 1층에도 주거가 있어, 주거동만 분모로 쓰면
+                            // 분자가 분모를 넘는다. 전체 동수를 분모로 쓴다.
+                            const base =
+                              stats.conditions.totalBuildings ??
+                              stats.conditions.residentialBuildings
+                            return {
+                              k: '반지하 비율',
+                              v: `${stats.conditions.semiBasement}동 / ${base}동`,
+                              sub: pct(stats.conditions.semiBasement, base),
+                            }
+                          })()
                         : {
                             k: '지하층 보유',
                             v: `${stats.conditions.withBasement}동 / ${stats.conditions.residentialBuildings}동`,

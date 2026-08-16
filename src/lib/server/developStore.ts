@@ -100,6 +100,7 @@ export interface ZoneStats {
     abutting?: number
     abuttingBase?: number
     semiBasement?: number
+    totalBuildings?: number
   }
   actual?: {
     far: number | null

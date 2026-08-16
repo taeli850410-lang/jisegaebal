@@ -111,6 +111,52 @@ function parseItems(xml: string, kind: Kind): Transaction[] {
 const cache = new Map<string, { at: number; data: Transaction[] }>()
 const TTL = 1000 * 60 * 30
 
+/**
+ * 초당 요청 제한기.
+ *
+ * 실거래 API 는 일일 한도와 별개로 초당 한도가 있다
+ * (LIMITED_NUMBER_OF_SERVICE_REQUESTS_PER_SECOND_EXCEEDS_ERROR).
+ * "서울 전체"는 25개 구 x 12개월 x 3종 = 900콜이라 그냥 Promise.all 로 던지면
+ * 대부분 429 로 돌아오고, 기간을 늘렸는데 결과가 오히려 줄어든다.
+ *
+ * 그래서 전역으로 초당 처리량을 묶는다. 실패해도 조용히 빈 배열이 되던 것도
+ * 429 일 때는 잠깐 쉬었다 한 번 더 시도한다.
+ */
+const RATE_PER_SEC = 8
+let windowStart = 0
+let windowCount = 0
+
+async function rateLimited<T>(run: () => Promise<T>): Promise<T> {
+  for (;;) {
+    const now = Date.now()
+    if (now - windowStart >= 1000) {
+      windowStart = now
+      windowCount = 0
+    }
+    if (windowCount < RATE_PER_SEC) {
+      windowCount++
+      return run()
+    }
+    await new Promise((r) => setTimeout(r, 1000 - (now - windowStart) + 20))
+  }
+}
+
+async function fetchXml(url: string): Promise<string> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const xml = await rateLimited(async () => {
+      try {
+        const r = await fetch(url, { cache: 'no-store' })
+        return r.ok ? await r.text() : ''
+      } catch {
+        return ''
+      }
+    })
+    if (!/PER_SECOND_EXCEEDS/.test(xml)) return xml
+    await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+  }
+  return ''
+}
+
 export async function fetchTransactions(
   gu: string,
   months: number,
@@ -137,12 +183,7 @@ export async function fetchTransactions(
       const url =
         `${ENDPOINTS[kind].url}?serviceKey=${serviceKey}` +
         `&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=1000&pageNo=1`
-      jobs.push(
-        fetch(url, { cache: 'no-store' })
-          .then((r) => (r.ok ? r.text() : ''))
-          .then((xml) => (xml ? parseItems(xml, kind) : []))
-          .catch(() => []),
-      )
+      jobs.push(fetchXml(url).then((xml) => (xml ? parseItems(xml, kind) : [])))
     }
   }
 
