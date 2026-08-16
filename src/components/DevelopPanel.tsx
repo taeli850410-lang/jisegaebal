@@ -133,6 +133,7 @@ interface ZoneStats {
   landUse: { label: string; areaM2: number }[]
   landPrice: { medianPerM2: number; samples: number } | null
   regulations?: { label: string; scope: 'all' | 'partial' }[]
+  ownership?: { sampled: number; byOwner: { label: string; areaM2: number }[] }
   landCharSampled?: number
   source: string
 }
@@ -380,6 +381,40 @@ function StatRows({
 }
 
 const pct = (a: number, b: number) => (b > 0 ? `(${Math.round((a / b) * 100)}%)` : '')
+
+/** 면적 항목을 사진처럼 이름 · 막대 · "N㎡ (P%)" 로 늘어놓는다 */
+function AreaBars({
+  items,
+  colors = {},
+}: {
+  items: { label: string; areaM2: number }[]
+  colors?: Record<string, string>
+}) {
+  const total = items.reduce((s, i) => s + i.areaM2, 0)
+  return (
+    <div className="space-y-1.5">
+      {items.map((i) => {
+        const p = total ? Math.round((i.areaM2 / total) * 100) : 0
+        return (
+          <div key={i.label} className="flex items-center gap-2">
+            <span className="w-24 shrink-0 truncate text-xs text-gray-500" title={i.label}>
+              {i.label}
+            </span>
+            <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-100">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${p}%`, background: colors[i.label] ?? '#94A3B8' }}
+              />
+            </div>
+            <span className="w-24 shrink-0 text-right text-[11px] text-gray-500">
+              {i.areaM2.toLocaleString()}㎡ ({p}%)
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 export default function DevelopPanel({
   develop,
@@ -1398,6 +1433,52 @@ export default function DevelopPanel({
                           })
                         })()}
                       </div>
+                    </>
+                  )}
+
+                  {/* 용도별 토지 면적 — 토지특성의 용도지역, 면적 기준 */}
+                  {stats.actual?.useZones && stats.actual.useZones.length > 0 && (
+                    <>
+                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                        용도별 토지 면적
+                        <Grade grade="B" />
+                      </h3>
+                      <AreaBars
+                        items={stats.actual.useZones}
+                        colors={{
+                          제1종전용주거지역: '#93C5FD',
+                          제1종일반주거지역: '#60A5FA',
+                          제2종일반주거지역: '#3B82F6',
+                          제3종일반주거지역: '#1D4ED8',
+                          준주거지역: '#8B5CF6',
+                          일반상업지역: '#F97316',
+                        }}
+                      />
+                    </>
+                  )}
+
+                  {/* 소유자별 토지 면적 — 토지소유정보의 소유구분 */}
+                  {stats.ownership && stats.ownership.byOwner.length > 0 && (
+                    <>
+                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                        소유자별 토지 면적
+                        <Grade grade="B" />
+                      </h3>
+                      <AreaBars
+                        items={stats.ownership.byOwner}
+                        colors={{
+                          개인: '#4F46E5',
+                          국공유지: '#10B981',
+                          법인: '#F59E0B',
+                          기타: '#CBD5E1',
+                        }}
+                      />
+                      <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                        국토교통부 토지소유정보 기준입니다. 공유 필지는 소유자가 여럿이라 면적이
+                        중복되므로, 필지마다 대표 소유구분 하나만 세고 면적은 한 번만 더했습니다.
+                        {stats.ownership.sampled &&
+                          ` 표본 ${stats.ownership.sampled}필지.`}
+                      </p>
                     </>
                   )}
 

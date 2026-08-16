@@ -35,6 +35,14 @@ const LIMIT = Number(arg('--limit', '40'))
 const GU = arg('--gu', null)
 /** 이미 산출한 구역도 다시 계산한다 (필드를 추가했을 때) */
 const REFRESH = process.argv.includes('--refresh')
+/**
+ * 값싼 항목만 낸다 — 세대현황·노후도·과소필지·유형별 토지면적.
+ *
+ * 필지 단위 V-World 호출(토지특성·토지이용·소유)을 통째로 건너뛴다.
+ * 그것들이 구역당 300콜을 먹어 1,690개 구역을 도는 걸 막고 있었다.
+ * tier1 은 구역당 WFS 1콜 + 법정동 캐시라 전 구역을 돌 수 있다.
+ */
+const TIER1 = process.argv.includes('--tier1')
 
 const OUT = 'data/zone-stats.json'
 const stats = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf-8')) : {}
@@ -196,6 +204,56 @@ async function landUse(pnus) {
 }
 
 /**
+ * 토지소유정보 — 소유자별 토지 면적(개인·국유지·공유지·법인).
+ *
+ * 한 필지에 공유자가 여럿이면 같은 면적이 사람 수만큼 반복해서 온다.
+ * 면적을 그대로 더하면 부풀려지므로, 필지마다 대표 소유구분 하나만 세고
+ * 면적은 한 번만 더한다.
+ */
+async function possession(pnus) {
+  const byPnu = new Map()
+  const C = 4
+  for (let i = 0; i < pnus.length; i += C) {
+    await Promise.all(
+      pnus.slice(i, i + C).map(async (pnu) => {
+        try {
+          const j = await (
+            await fetch(
+              `https://api.vworld.kr/ned/data/getPossessionAttr?key=${VKEY}` +
+                `&domain=${encodeURIComponent(DOMAIN)}&format=json&numOfRows=50&pageNo=1&pnu=${pnu}`,
+            )
+          ).json()
+          const b = j[Object.keys(j)[0]]
+          const f = b?.field ? (Array.isArray(b.field) ? b.field : [b.field]) : []
+          if (!f.length) return
+          // 공유 필지는 가장 많은 소유구분을 그 필지의 성격으로 본다
+          const tally = {}
+          for (const r of f) {
+            const nm = String(r.posesnSeCodeNm ?? '').trim()
+            if (nm) tally[nm] = (tally[nm] ?? 0) + 1
+          }
+          const top = Object.entries(tally).sort((a, b2) => b2[1] - a[1])[0]
+          if (top) byPnu.set(pnu, { kind: top[0], areaM2: num(f[0].lndpclAr) })
+        } catch {
+          /* 건너뛴다 */
+        }
+      }),
+    )
+    await sleep(120)
+  }
+  return byPnu
+}
+
+/** 소유구분을 사진처럼 네 갈래로 묶는다 */
+function ownerGroup(kind) {
+  if (/국유/.test(kind)) return '국공유지'
+  if (/시유|도유|군유|구유|공유지/.test(kind)) return '국공유지'
+  if (/법인/.test(kind)) return '법인'
+  if (/개인/.test(kind)) return '개인'
+  return '기타'
+}
+
+/**
  * 접도 여부.
  *
  * 도시정비법의 접도율은 "폭 4m 이상 도로에 접한 대지" 기준이다.
@@ -225,10 +283,33 @@ if (BUILDING_INDEX) {
   console.log(`건축물대장 색인 사용 — 지번 ${Object.keys(BUILDING_INDEX).length.toLocaleString()}개`)
 }
 
+/**
+ * 법정동 단위 건축물대장 캐시 — 디스크에 남긴다.
+ *
+ * 서울 법정동은 약 470개뿐이고 구역은 1,690개다. 여러 구역이 같은 동을 공유하므로
+ * 한 번 받아두면 나머지 구역은 공짜다. 실행 사이에도 살아 있어야 의미가 있어
+ * 메모리가 아니라 파일에 둔다. (구역 1,690개를 API 로 다 도는 유일한 방법이다)
+ */
+const BLD_CACHE_PATH = 'data/building-dong-cache.json'
+const bldDisk = existsSync(BLD_CACHE_PATH)
+  ? JSON.parse(readFileSync(BLD_CACHE_PATH, 'utf-8'))
+  : {}
+let bldDirty = 0
+function persistBld() {
+  if (!bldDirty) return
+  mkdirSync('data', { recursive: true })
+  writeFileSync(BLD_CACHE_PATH, JSON.stringify(bldDisk))
+  bldDirty = 0
+}
+
 const bldCache = new Map()
 async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
   const ck = `${op}|${ldCode}`
   if (bldCache.has(ck)) return bldCache.get(ck)
+  if (bldDisk[ck]) {
+    bldCache.set(ck, bldDisk[ck])
+    return bldDisk[ck]
+  }
   const sigungu = ldCode.slice(0, 5)
   const bjdong = ldCode.slice(5, 10)
   // numOfRows 는 100 이 상한이다. 더 크게 요청해도 100 만 온다.
@@ -270,6 +351,9 @@ async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
     await sleep(60)
   }
   bldCache.set(ck, rows)
+  bldDisk[ck] = rows
+  bldDirty++
+  if (bldDirty >= 3) persistBld()
   return rows
 }
 
@@ -455,7 +539,9 @@ function compute(zone, parcels, buildingsByLd, recapsByLd, landChars) {
 let targets = develops.filter((d) => d.gu && d.areaM2 > 3000)
 if (GU) targets = targets.filter((d) => d.gu === GU)
 // 이미 만든 구역은 건너뛰고, 큰 구역부터 — 관심도가 높다
-if (!REFRESH) targets = targets.filter((d) => !(d.id in stats))
+// tier1 은 값싼 항목만 내므로, 이미 비싼 항목까지 있는 구역을 덮어쓰면 손해다
+if (TIER1) targets = targets.filter((d) => !(d.id in stats))
+else if (!REFRESH) targets = targets.filter((d) => !(d.id in stats))
 targets = targets.sort((a, b) => b.areaM2 - a.areaM2)
 targets = targets.slice(0, LIMIT)
 
@@ -522,17 +608,34 @@ for (const [i, zone] of targets.entries()) {
   const CAP = 150
   const all = parcels.map((p) => p.pnu)
   const step = Math.max(1, Math.ceil(all.length / CAP))
-  const pnus = all.filter((_, i) => i % step === 0).slice(0, CAP)
-  const landChars = await landCharacteristics(pnus)
+  const pnus = TIER1 ? [] : all.filter((_, i) => i % step === 0).slice(0, CAP)
+
+  const landChars = pnus.length ? await landCharacteristics(pnus) : new Map()
   // 규제는 구역 전체에 걸리므로 표본 8필지면 충분하다
-  const regulations = await landUse(pnus.slice(0, 8))
+  const regulations = pnus.length ? await landUse(pnus.slice(0, 8)) : []
+  const owners = pnus.length ? await possession(pnus) : new Map()
 
   const s = compute(zone, parcels, buildingsByLd, recapsByLd, landChars)
-  s.regulations = regulations.map((r) => ({
-    label: r.label,
-    // 표본 전부에 걸리면 구역 전역, 일부면 일부 필지
-    scope: r.count >= Math.min(8, pnus.length) ? 'all' : 'partial',
-  }))
+  if (regulations.length) {
+    s.regulations = regulations.map((r) => ({
+      label: r.label,
+      // 표본 전부에 걸리면 구역 전역, 일부면 일부 필지
+      scope: r.count >= Math.min(8, pnus.length) ? 'all' : 'partial',
+    }))
+  }
+  if (owners.size) {
+    const tally = {}
+    for (const { kind, areaM2 } of owners.values()) {
+      const g = ownerGroup(kind)
+      tally[g] = (tally[g] ?? 0) + (areaM2 || 0)
+    }
+    s.ownership = {
+      sampled: owners.size,
+      byOwner: Object.entries(tally)
+        .map(([label, areaM2]) => ({ label, areaM2: Math.round(areaM2) }))
+        .sort((a, b) => b.areaM2 - a.areaM2),
+    }
+  }
   s.legalDongs = ldCodes.length
   if (pnus.length < all.length) s.landCharSampled = pnus.length
   // 반지하는 층별개요 파일이 있을 때만 낸다. 없으면 지하층 보유로 대체 표기한다.
@@ -549,4 +652,6 @@ for (const [i, zone] of targets.entries()) {
   await sleep(200)
 }
 
+persistBld()
 console.log(`\n완료: ${ok}개 산출 / 누적 ${Object.keys(stats).length}개`)
+console.log(`법정동 건축물대장 캐시: ${Object.keys(bldDisk).length}건`)

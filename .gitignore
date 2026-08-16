@@ -33,3 +33,6 @@ data/raw/
 .env*
 # 템플릿은 계속 추적한다 (위 .env* 보다 뒤에 와야 예외가 적용된다)
 !.env.example
+
+# 법정동 건축물대장 캐시 (수십 MB, 재생성 가능)
+data/building-dong-cache.json

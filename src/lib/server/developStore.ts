@@ -112,6 +112,8 @@ export interface ZoneStats {
   landPrice: { medianPerM2: number; samples: number } | null
   /** 토지이용계획 지역·지구 지정 (토지이음이 보여주는 규제 항목) */
   regulations?: { label: string; scope: 'all' | 'partial' }[]
+  /** 소유구분별 토지 면적 (V-World 토지소유정보) */
+  ownership?: { sampled: number; byOwner: { label: string; areaM2: number }[] }
   /** 토지특성을 표본으로 조회한 경우 그 필지 수 */
   landCharSampled?: number
   source: string
