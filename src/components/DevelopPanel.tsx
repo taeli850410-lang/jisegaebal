@@ -1,7 +1,8 @@
 ﻿'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { PROJECT_TYPE_MAP, STAGES, STAGE_MAP, stageColor } from '@/lib/taxonomy'
+import { PROJECT_TYPE_MAP, STAGES, stageColor } from '@/lib/taxonomy'
+import { resolveStage } from '@/lib/stage'
 import { isFavorite, toggleFavorite } from '@/lib/userStore'
 import type { ApiDevelop } from '@/lib/types'
 import DealChart from './detail/DealChart'
@@ -80,6 +81,8 @@ interface ZoneSummary {
 
 /** 정비몽땅 추진경과에서 온 단계별 인가일 */
 interface ZoneProgress {
+  /** 정비몽땅 사업장 페이지 경로 조각 — 자료실에서 원문으로 보낸다 */
+  cafeUrl: string | null
   siteName: string
   dates: Record<string, { date: string; rawStage: string; noticeNo: string | null }>
   history: {
@@ -89,6 +92,19 @@ interface ZoneProgress {
     noticeNo: string | null
     vendor: string | null
   }[]
+}
+
+/** 인근에서 실제로 삽을 떴거나 준공된 구역 */
+interface ConstructionZone extends Nearby {
+  startDate: string | null
+  completeDate: string | null
+}
+
+interface NewsItem {
+  title: string
+  source: string | null
+  date: string | null
+  link: string
 }
 
 interface FullData {
@@ -102,8 +118,15 @@ interface FullData {
   dealCount: number
   medianPerPyeong: number | null
   series: { ym: string; value: number | null; count: number }[]
-  nearby: Nearby[]
+  nearby: (Nearby & {
+    memberCount: number | null
+    far: number | null
+    bcr: number | null
+    floors: string | null
+  })[]
   apartments: Apartment[]
+  constructionZones: ConstructionZone[]
+  stageDurations: Record<string, { avgMonths: number; samples: number }>
   unavailable: string | null
 }
 
@@ -115,6 +138,7 @@ interface Apartment {
   distanceKm: number
   households: number | null
   buildings: number | null
+  useApprovalDate: string | null
   areas: { pyeong: number; exclusiveAr: number; price: number; dealDate: string }[]
 }
 
@@ -128,12 +152,159 @@ const perPyeong = (won: number) =>
     ? `${(won / 100_000_000).toFixed(1)}억`
     : `${Math.round(won / 10_000).toLocaleString()}만`
 
+/**
+ * 뉴스 검색어용 구역명.
+ * "주택재개발정비사업구역" 같은 꼬리표가 붙으면 기사가 하나도 안 걸린다.
+ * 기사에 실제로 쓰이는 고유명만 남긴다.
+ */
+function shortenForSearch(name: string): string {
+  const s = name
+    .replace(/^[가-힣]{1,3}구\s+/, '')
+    .replace(
+      /(주택재개발|주택재건축|도시환경|주거환경개선|주거환경관리|재정비촉진|가로주택|소규모재건축)?정비사업(구역)?$/,
+      '',
+    )
+    .replace(/(사업)?구역$/, '')
+    .trim()
+  return s.length >= 2 ? s : name
+}
+
 const TABS = [
   { key: 'deals', label: '실거래' },
   { key: 'progress', label: '진행현황' },
+  { key: 'library', label: '자료실' },
   { key: 'info', label: '구역정보' },
+  { key: 'news', label: '뉴스' },
   { key: 'nearby', label: '인근 구역' },
+  { key: 'apts', label: '인근 아파트' },
+  { key: 'construction', label: '신축 공사' },
 ] as const
+
+/**
+ * 현재 구역 ↔ 인근 구역 가로 비교표.
+ *
+ * 값이 하나도 없는 행은 빈 칸만 늘어나므로 통째로 뺀다.
+ * (정비몽땅 사업개요가 없는 구역이 많아, 안 그러면 표가 대부분 대시가 된다)
+ */
+function CompareTable({
+  zone,
+  sum,
+  nearby,
+}: {
+  zone: ApiDevelop & { dong?: string | null }
+  sum: ZoneSummary | null
+  nearby: FullData['nearby']
+}) {
+  interface Col {
+    name: string
+    self: boolean
+    stage: string | null
+    projectType: string
+    areaM2: number
+    memberCount: number | null
+    far: number | null
+    bcr: number | null
+    floors: string | null
+    distanceKm: number
+  }
+
+  const cols: Col[] = [
+    {
+      name: zone.name,
+      self: true,
+      stage: zone.stage ?? null,
+      projectType: zone.projectType,
+      areaM2: zone.areaM2,
+      memberCount: sum?.memberCount ?? null,
+      far: sum?.far ?? null,
+      bcr: sum?.bcr ?? null,
+      floors: sum?.floors ?? null,
+      distanceKm: 0,
+    },
+    ...nearby.slice(0, 3).map((n) => ({
+      name: n.name,
+      self: false,
+      stage: n.stage,
+      projectType: n.projectType,
+      areaM2: n.areaM2,
+      memberCount: n.memberCount,
+      far: n.far,
+      bcr: n.bcr,
+      floors: n.floors,
+      distanceKm: n.distanceKm,
+    })),
+  ]
+
+  // 배열 리터럴에 바로 .filter 를 붙이면 문맥 타입이 콜백 인자까지 흐르지 않는다.
+  // 타입을 붙인 변수에 먼저 담고 나서 거른다.
+  const allRows: { label: string; get: (c: Col) => string | null }[] = [
+    {
+      label: '사업종류',
+      get: (c) => PROJECT_TYPE_MAP.get(c.projectType)?.label ?? null,
+    },
+    { label: '진행단계', get: (c) => c.stage ?? null },
+    { label: '사업면적', get: (c) => `${(c.areaM2 / 10000).toFixed(1)}만㎡` },
+    {
+      label: '조합원',
+      get: (c) => (c.memberCount ? `${c.memberCount.toLocaleString()}명` : null),
+    },
+    { label: '용적률', get: (c) => (c.far != null ? `${c.far}%` : null) },
+    { label: '건폐율', get: (c) => (c.bcr != null ? `${c.bcr}%` : null) },
+    { label: '층수', get: (c) => c.floors ?? null },
+  ]
+  const rows = allRows.filter((r) => cols.some((c) => r.get(c)))
+
+  return (
+    <>
+      <h4 className="mt-5 mb-2 text-[13px] font-bold">비교</h4>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[320px] text-[11px]">
+          <thead>
+            <tr>
+              <th className="w-14" />
+              {cols.map((c) => (
+                <th key={c.name} className="px-1 pb-1.5 align-bottom">
+                  <span
+                    className="block truncate rounded px-1 py-0.5 text-[10px] font-bold"
+                    style={{
+                      background: c.self ? '#4F46E51A' : '#F3F4F6',
+                      color: c.self ? '#4F46E5' : '#6B7280',
+                    }}
+                    title={c.name}
+                  >
+                    {c.name}
+                  </span>
+                  {!c.self && (
+                    <span className="mt-0.5 block text-[10px] font-normal text-gray-400">
+                      {c.distanceKm}km
+                    </span>
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.label} className="border-t border-gray-100">
+                <td className="py-1.5 text-gray-400">{r.label}</td>
+                {cols.map((c) => (
+                  <td
+                    key={c.name}
+                    className={`px-1 py-1.5 text-center ${
+                      c.self ? 'font-bold text-gray-900' : 'text-gray-600'
+                    }`}
+                  >
+                    {r.get(c) ?? '—'}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
 
 export default function DevelopPanel({
   develop,
@@ -149,7 +320,10 @@ export default function DevelopPanel({
   const [fav, setFav] = useState(false)
   const [showAllDeals, setShowAllDeals] = useState(false)
   const [simOpen, setSimOpen] = useState(false)
+  const [news, setNews] = useState<NewsItem[] | null>(null)
+  const [activeTab, setActiveTab] = useState<string>('deals')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const tabBarRef = useRef<HTMLElement>(null)
 
   useEffect(() => setFav(isFavorite(develop.id)), [develop.id])
 
@@ -157,7 +331,9 @@ export default function DevelopPanel({
     let cancelled = false
     setLoading(true)
     setData(null)
+    setNews(null)
     setShowAllDeals(false)
+    setActiveTab('deals')
     if (scrollRef.current) scrollRef.current.scrollTop = 0
 
     fetch(`/api/develops/full?id=${encodeURIComponent(develop.id)}`)
@@ -170,9 +346,53 @@ export default function DevelopPanel({
     }
   }, [develop.id])
 
+  /**
+   * 뉴스는 상세와 분리해서 부른다.
+   * 외부(구글 뉴스 RSS)라 느리거나 실패할 수 있는데, 그것 때문에
+   * 나머지 상세 전체가 늦어지면 안 된다.
+   */
+  useEffect(() => {
+    let cancelled = false
+    // 구역명만 넣으면 동명이인 기사가 섞인다. 자치구를 붙여 좁힌다.
+    const q = [develop.gu, shortenForSearch(develop.name), '재개발'].filter(Boolean).join(' ')
+    fetch(`/api/news?q=${encodeURIComponent(q)}`)
+      .then((r) => r.json())
+      .then((j) => !cancelled && setNews(j.items ?? []))
+      .catch(() => !cancelled && setNews([]))
+    return () => {
+      cancelled = true
+    }
+  }, [develop.id, develop.gu, develop.name])
+
+  /** 스크롤 위치에 맞춰 탭 밑줄을 옮긴다 — 지금 어디를 보고 있는지 알려준다 */
+  useEffect(() => {
+    const box = scrollRef.current
+    if (!box || loading) return
+    const onScroll = () => {
+      const secs = [...box.querySelectorAll<HTMLElement>('[data-section]')]
+      let cur = secs[0]?.dataset.section ?? 'deals'
+      for (const s of secs) {
+        if (s.offsetTop - box.offsetTop - 40 <= box.scrollTop) cur = s.dataset.section!
+      }
+      setActiveTab((p) => (p === cur ? p : cur))
+    }
+    onScroll()
+    box.addEventListener('scroll', onScroll, { passive: true })
+    return () => box.removeEventListener('scroll', onScroll)
+  }, [loading])
+
+  /** 활성 탭이 탭바 밖으로 나가면 보이도록 끌어온다 (탭이 8개라 가로 스크롤된다) */
+  useEffect(() => {
+    const el = tabBarRef.current?.querySelector<HTMLElement>(`[data-tab="${activeTab}"]`)
+    el?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [activeTab])
+
   const z = data?.zone ?? develop
   const type = PROJECT_TYPE_MAP.get(z.projectType)
-  const canonical = z.canonicalStage ? STAGE_MAP.get(z.canonicalStage) : null
+  const { current: canonical, listed, ahead: stageAhead } = resolveStage(
+    z.canonicalStage,
+    data?.zone.progress?.dates,
+  )
   const match = z.stageMatchBy ? MATCH_LABEL[z.stageMatchBy] : null
   const sColor = stageColor(z.canonicalStage)
   const pyeong = Math.round(z.areaM2 / 3.3058)
@@ -202,6 +422,29 @@ export default function DevelopPanel({
 
   const deals = data?.deals ?? []
   const shownDeals = showAllDeals ? deals : deals.slice(0, 5)
+
+  /**
+   * 차트에 얹을 인가 시점.
+   * 사진의 벤치마크처럼 "대상지선정·조합설립" 같은 사건을 값 그래프 위에 세워
+   * 가격이 어느 사건 뒤에 뛰었는지 한눈에 보이게 한다.
+   */
+  const milestones = STAGES.filter((s) => prog?.dates[s.code])
+    .map((s) => ({
+      ym: prog!.dates[s.code].date.slice(0, 7),
+      label: s.label,
+      color: s.color,
+    }))
+    .filter((m, i, arr) => arr.findIndex((x) => x.ym === m.ym) === i)
+
+  /** 최근 10년 안에 사용승인된 인근 단지 — "이 동네에 뭐가 새로 섰나" */
+  const recentApts = (() => {
+    const cut = new Date()
+    cut.setFullYear(cut.getFullYear() - 10)
+    const iso = cut.toISOString().slice(0, 10)
+    return (data?.apartments ?? [])
+      .filter((a) => a.useApprovalDate && a.useApprovalDate >= iso)
+      .sort((a, b) => (b.useApprovalDate ?? '').localeCompare(a.useApprovalDate ?? ''))
+  })()
 
   /** 준공 후 시세 기본값 — 인근 아파트 중 평당가가 가장 높은 거래 */
   const nearbyTopPpp = (() => {
@@ -278,17 +521,28 @@ export default function DevelopPanel({
           ))}
         </div>
 
-        {/* 탭 — 클릭하면 해당 섹션으로 스크롤 */}
-        <nav className="flex gap-4 border-t border-gray-100">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => goToSection(t.key)}
-              className="py-2.5 text-[13px] font-bold text-gray-500 hover:text-indigo-600"
-            >
-              {t.label}
-            </button>
-          ))}
+        {/* 탭 — 클릭하면 해당 섹션으로 스크롤. 8개라 가로 스크롤된다. */}
+        <nav
+          ref={tabBarRef}
+          className="thin-scroll -mx-5 flex gap-4 overflow-x-auto border-t border-gray-100 px-5"
+        >
+          {TABS.map((t) => {
+            const on = activeTab === t.key
+            return (
+              <button
+                key={t.key}
+                data-tab={t.key}
+                onClick={() => goToSection(t.key)}
+                className={`shrink-0 border-b-2 py-2.5 text-[13px] font-bold whitespace-nowrap transition-colors ${
+                  on
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-indigo-600'
+                }`}
+              >
+                {t.label}
+              </button>
+            )
+          })}
         </nav>
       </div>
 
@@ -321,7 +575,7 @@ export default function DevelopPanel({
                 </p>
               ) : (
                 <>
-                  <DealChart series={data!.series} />
+                  <DealChart series={data!.series} milestones={milestones} />
 
                   <table className="mt-3 w-full text-[11px]">
                     <thead>
@@ -440,6 +694,14 @@ export default function DevelopPanel({
                             <p className="mt-0.5 text-[11px]" style={{ color: s.color }}>
                               현재 단계
                               {monthsInStage != null && ` · ${monthsInStage}개월째`}
+                              {/* 이 단계에 보통 몇 달 머무는지 — 빠른지 느린지 판단 기준 */}
+                              {data?.stageDurations?.[s.code] && (
+                                <span className="text-gray-400">
+                                  {' '}
+                                  (서울 중앙값 {data.stageDurations[s.code].avgMonths}개월 · 표본{' '}
+                                  {data.stageDurations[s.code].samples})
+                                </span>
+                              )}
                             </p>
                           )}
                         </div>
@@ -461,6 +723,13 @@ export default function DevelopPanel({
                     {z.stageBizType && <span className="text-gray-400"> · {z.stageBizType}</span>}
                   </p>
                 )}
+                {stageAhead && canonical && (
+                  <p className="mt-0.5 text-gray-400">
+                    사업장 목록에는 「{listed?.label}」로 되어 있으나, 추진경과에 「{canonical.label}
+                    」 인가일({prog?.dates[canonical.code]?.date.replace(/-/g, '.')})이 있어 그쪽을
+                    현재 단계로 봅니다.
+                  </p>
+                )}
                 {z.stageSiteName && z.stageSiteName !== z.name && (
                   <p className="mt-0.5 text-gray-400">사업장명: {z.stageSiteName}</p>
                 )}
@@ -477,6 +746,71 @@ export default function DevelopPanel({
                   </p>
                 )}
               </div>
+            </section>
+
+            {/* 자료실 — 원문으로 바로 가는 링크. 파일을 우리가 복제해 두지는 않는다. */}
+            <section data-section="library" className="border-b-8 border-gray-50 px-5 py-4">
+              <h3 className="mb-2 text-sm font-bold">자료실</h3>
+              <ul className="divide-y divide-gray-100">
+                {[
+                  {
+                    label: prog ? `정비사업 정보몽땅 — ${prog.siteName}` : '정비사업 정보몽땅',
+                    note: prog ? '사업개요·추진경과·고시문' : '사업장 검색',
+                    href: prog?.cafeUrl
+                      ? `https://cleanup.seoul.go.kr/cleanup/${prog.cafeUrl}`
+                      : `https://cleanup.seoul.go.kr/user/cn/prjt/prjtList.do?searchWrd=${encodeURIComponent(
+                          z.stageSiteName ?? z.name,
+                        )}`,
+                  },
+                  {
+                    label: '서울시 고시·공고',
+                    note: '정비구역 지정 고시문 원문',
+                    href: `https://www.seoul.go.kr/news/news_notice.do#list/1/cntPerPage=20&srchType=title&srchWord=${encodeURIComponent(
+                      shortenForSearch(z.name),
+                    )}`,
+                  },
+                  {
+                    label: '국토교통부 실거래가 공개시스템',
+                    note: z.gu ? `${z.gu} 원문 조회` : '원문 조회',
+                    href: 'https://rt.molit.go.kr/',
+                  },
+                  {
+                    label: '서울 도시계획 포털 (정비사업)',
+                    note: '정비구역 현황·기준',
+                    href: 'https://urban.seoul.go.kr/',
+                  },
+                  ...(z.noticeSn
+                    ? [
+                        {
+                          label: '서울 열린데이터광장 — 의제처리구역',
+                          note: `고시 일련번호 ${z.noticeSn}`,
+                          href: 'https://data.seoul.go.kr/dataList/OA-21112/S/1/datasetView.do',
+                        },
+                      ]
+                    : []),
+                ].map((r) => (
+                  <li key={r.label}>
+                    <a
+                      href={r.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between gap-2 py-2.5 hover:bg-gray-50"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-semibold text-gray-800">
+                          {r.label}
+                        </span>
+                        <span className="block truncate text-[11px] text-gray-400">{r.note}</span>
+                      </span>
+                      <span className="shrink-0 text-[11px] font-bold text-indigo-600">열기 ↗</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px] leading-relaxed text-gray-400">
+                고시문·의사록 파일은 저작권·개인정보 문제로 복제해 두지 않고 원문 사이트로
+                연결합니다.
+              </p>
             </section>
 
             {/* 구역정보 */}
@@ -606,10 +940,46 @@ export default function DevelopPanel({
               </ul>
             </section>
 
+            {/* 뉴스 — 구글 뉴스 RSS. 제목·언론사·링크만 보여주고 본문은 원문으로 보낸다. */}
+            <section data-section="news" className="border-b-8 border-gray-50 px-5 py-4">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-bold">뉴스</h3>
+                <span className="text-[11px] text-gray-400">구글 뉴스</span>
+              </div>
+              {news === null ? (
+                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs text-gray-400">
+                  불러오는 중…
+                </p>
+              ) : news.length === 0 ? (
+                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs text-gray-500">
+                  이 구역 관련 기사를 찾지 못했습니다.
+                </p>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {news.slice(0, 8).map((n) => (
+                    <li key={n.link}>
+                      <a
+                        href={n.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block py-2.5 hover:bg-gray-50"
+                      >
+                        <p className="text-[13px] leading-snug font-semibold break-keep text-gray-800">
+                          {n.title}
+                        </p>
+                        <p className="mt-1 text-[11px] text-gray-400">
+                          {n.source ?? '출처 미상'}
+                          {n.date && ` · ${n.date.replace(/-/g, '.')}`}
+                        </p>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
             {/* 인근 구역 */}
-            <section data-section="nearby"
-              className="px-5 py-4"
-            >
+            <section data-section="nearby" className="border-b-8 border-gray-50 px-5 py-4">
               <h3 className="mb-2 text-sm font-bold">인근 구역</h3>
               {data?.nearby.length ? (
                 <div className="overflow-x-auto">
@@ -670,8 +1040,13 @@ export default function DevelopPanel({
                 </p>
               )}
 
-              {/* 인근 아파트 */}
-              <h3 className="mt-6 mb-2 text-sm font-bold">
+              {/* 비교표 — 사진의 가로 비교표. 값이 있는 항목만 행으로 만든다. */}
+              {data?.nearby.length ? <CompareTable zone={z} sum={sum} nearby={data.nearby} /> : null}
+            </section>
+
+            {/* 인근 아파트 */}
+            <section data-section="apts" className="border-b-8 border-gray-50 px-5 py-4">
+              <h3 className="mb-2 text-sm font-bold">
                 인근 아파트
                 <span className="ml-1 text-[11px] font-normal text-gray-400">
                   반경 1.5km · 최근 12개월 실거래
@@ -733,6 +1108,112 @@ export default function DevelopPanel({
                   반경 1.5km 안에 최근 아파트 실거래가 없습니다.
                 </p>
               )}
+            </section>
+
+            {/* 신축 공사 */}
+            <section data-section="construction" className="px-5 py-4">
+              <h3 className="mb-2 text-sm font-bold">
+                신축 공사
+                <span className="ml-1 text-[11px] font-normal text-gray-400">반경 3km</span>
+              </h3>
+
+              {data?.constructionZones.length ? (
+                <ul className="divide-y divide-gray-100">
+                  {data.constructionZones.map((n) => {
+                    const t = PROJECT_TYPE_MAP.get(n.projectType)
+                    const building = n.canonicalStage === 'construction' && !n.completeDate
+                    return (
+                      <li key={n.id}>
+                        <button
+                          onClick={() => onFocus(n.bbox, n.id)}
+                          className="flex w-full items-start justify-between gap-2 py-2.5 text-left hover:bg-gray-50"
+                        >
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-1">
+                              <span
+                                className="shrink-0 rounded px-1 py-px text-[9px] font-bold"
+                                style={{
+                                  background: `${t?.color ?? '#888'}1A`,
+                                  color: t?.color ?? '#666',
+                                }}
+                              >
+                                {t?.short}
+                              </span>
+                              <span className="truncate text-[13px] font-semibold">{n.name}</span>
+                            </span>
+                            <span className="mt-0.5 block text-[11px] text-gray-400">
+                              {n.startDate && `착공 ${n.startDate.replace(/-/g, '.')}`}
+                              {n.startDate && n.completeDate && ' → '}
+                              {n.completeDate && `준공 ${n.completeDate.replace(/-/g, '.')}`}
+                              {!n.startDate && !n.completeDate && (n.stage ?? '')}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span
+                              className="block rounded px-1.5 py-0.5 text-[10px] font-bold"
+                              style={
+                                building
+                                  ? { background: '#ECFDF5', color: '#059669' }
+                                  : { background: '#F3F4F6', color: '#6B7280' }
+                              }
+                            >
+                              {building ? '공사중' : '준공'}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] text-gray-400">
+                              {n.distanceKm}km
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs leading-relaxed text-gray-500">
+                  반경 3km 안에 착공·준공 기록이 있는 구역이 없습니다.
+                </p>
+              )}
+
+              {/* 최근 준공 아파트 — 건축물대장 사용승인일 기준 */}
+              {recentApts.length > 0 && (
+                <>
+                  <h4 className="mt-5 mb-2 text-[13px] font-bold">
+                    최근 준공 단지
+                    <span className="ml-1 text-[11px] font-normal text-gray-400">
+                      10년 이내 · 사용승인 기준
+                    </span>
+                  </h4>
+                  <ul className="divide-y divide-gray-100">
+                    {recentApts.map((a) => (
+                      <li key={a.name} className="flex items-center justify-between py-2 text-[12px]">
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{a.name}</span>
+                          <span className="block text-[11px] text-gray-400">
+                            {a.useApprovalDate?.replace(/-/g, '.')} 사용승인 · {a.distanceKm}km
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-right text-gray-500">
+                          {a.households != null && (
+                            <span className="block font-semibold">
+                              {a.households.toLocaleString()}세대
+                            </span>
+                          )}
+                          {a.buildings != null && (
+                            <span className="block text-[10px] text-gray-400">
+                              {a.buildings}개동
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
+                국토교통부 건축인허가(건축HUB) API 는 아직 연동되지 않아, 착공·준공일은 정비몽땅
+                추진경과, 준공 단지는 건축물대장 사용승인일에서 가져옵니다.
+              </p>
 
               <button
                 onClick={() => setSimOpen(true)}

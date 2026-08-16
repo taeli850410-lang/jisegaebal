@@ -8,8 +8,11 @@
  */
 export default function DealChart({
   series,
+  milestones = [],
 }: {
   series: { ym: string; value: number | null; count: number }[]
+  /** 인가 시점 — 값이 언제 뛰었는지 사건과 함께 읽히게 세로선으로 얹는다 */
+  milestones?: { ym: string; label: string; color: string }[]
 }) {
   const W = 320
   const H = 130
@@ -53,9 +56,41 @@ export default function DealChart({
   const fmt = (n: number) =>
     n >= 100_000_000 ? `${(n / 100_000_000).toFixed(1)}억` : `${Math.round(n / 10_000)}만`
 
+  // 차트가 다루는 24개월 밖의 인가는 그릴 자리가 없다
+  const ymIndex = new Map(series.map((s, i) => [s.ym, i]))
+  const marks = milestones
+    .map((m) => ({ ...m, i: ymIndex.get(m.ym) }))
+    .filter((m): m is typeof m & { i: number } => m.i != null)
+
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="실거래 추이">
+        {/* 인가 시점 세로선 — 차트 범위 안에 있는 것만 */}
+        {marks.map((m) => (
+          <g key={m.ym}>
+            <line
+              x1={x(m.i)}
+              y1={2}
+              x2={x(m.i)}
+              y2={H - PAD_B + 18}
+              stroke={m.color}
+              strokeWidth={1}
+              strokeDasharray="3 2"
+              opacity={0.55}
+            />
+            <text
+              x={x(m.i) + 2}
+              y={9}
+              fontSize={8}
+              fill={m.color}
+              textAnchor={m.i > series.length * 0.75 ? 'end' : 'start'}
+              transform={m.i > series.length * 0.75 ? `translate(-4,0)` : undefined}
+            >
+              {m.label}
+            </text>
+          </g>
+        ))}
+
         {/* 거래량 막대 */}
         {series.map((s, i) => {
           if (!s.count) return null

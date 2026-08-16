@@ -3,6 +3,7 @@ import { getAllDevelops, type StoredDevelop } from '@/lib/server/developStore'
 import { fetchTransactions, median, type Transaction } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
 import { getAptInfo } from '@/lib/server/aptInfo'
+import { stageDurations } from '@/lib/server/stageStats'
 import { outerRings } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
@@ -48,24 +49,53 @@ export async function GET(request: Request) {
 
   /* ── 인근 구역 ── */
   const c = centerOf(zone)
-  const nearby = all
+  const around = all
     .filter((z) => z.id !== zone.id && z.gu === zone.gu)
     .map((z) => ({ z, km: roughKm(c, centerOf(z)) }))
     .filter((x) => x.km <= 3)
     .sort((a, b) => a.km - b.km)
-    .slice(0, 5)
+
+  const briefZone = (z: StoredDevelop, km: number) => ({
+    id: z.id,
+    name: z.name,
+    projectType: z.projectType,
+    rawLabel: z.rawLabel,
+    stage: z.stage ?? null,
+    canonicalStage: z.canonicalStage ?? null,
+    areaM2: z.areaM2,
+    noticeDate: z.noticeDate ?? null,
+    distanceKm: Math.round(km * 10) / 10,
+    bbox: z.bbox,
+  })
+
+  const nearby = around.slice(0, 5).map(({ z, km }) => ({
+    ...briefZone(z, km),
+    // 비교표용 — 정비몽땅 사업개요가 있는 구역만 채워진다
+    memberCount: z.summary?.memberCount ?? null,
+    far: z.summary?.far ?? null,
+    bcr: z.summary?.bcr ?? null,
+    floors: z.summary?.floors ?? null,
+  }))
+
+  /* ── 신축 공사 ──
+     착공한 뒤로는 "언제 입주하나"가 관심사다. 건축인허가 API 는 우리 키에
+     미등록이라, 이미 가진 두 가지로 만든다.
+       ① 인근 정비구역 중 착공·준공 단계인 곳 (정비몽땅 추진경과 인가일)
+       ② 인근 아파트 중 최근 준공된 단지 (건축물대장 사용승인일) — 아래에서 붙인다 */
+  const constructionZones = around
     .map(({ z, km }) => ({
-      id: z.id,
-      name: z.name,
-      projectType: z.projectType,
-      rawLabel: z.rawLabel,
-      stage: z.stage ?? null,
-      canonicalStage: z.canonicalStage ?? null,
-      areaM2: z.areaM2,
-      noticeDate: z.noticeDate ?? null,
-      distanceKm: Math.round(km * 10) / 10,
-      bbox: z.bbox,
+      ...briefZone(z, km),
+      startDate: z.progress?.dates?.construction?.date ?? null,
+      completeDate: z.progress?.dates?.completed?.date ?? null,
     }))
+    .filter(
+      (z) =>
+        // 착공 중이거나, 착공·준공 날짜를 아는 구역만.
+        // 조합해산·청산도 canonicalStage가 completed라 날짜 없이 걸려 들어온다.
+        z.canonicalStage === 'construction' || z.startDate || z.completeDate,
+    )
+    .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))
+    .slice(0, 8)
 
   /* ── 이 구역의 실거래 ── */
   let deals: Transaction[] = []
@@ -101,6 +131,7 @@ export async function GET(request: Request) {
     distanceKm: number
     households: number | null
     buildings: number | null
+    useApprovalDate: string | null
     areas: { pyeong: number; exclusiveAr: number; price: number; dealDate: string }[]
   }[] = []
 
@@ -155,6 +186,7 @@ export async function GET(request: Request) {
         distanceKm: Math.round(km * 10) / 10,
         households: info?.households ?? null,
         buildings: info?.buildings ?? null,
+        useApprovalDate: info?.useApprovalDate ?? null,
         areas: [...byArea.entries()]
           .sort((a, b) => a[0] - b[0])
           .slice(0, 3)
@@ -211,6 +243,9 @@ export async function GET(request: Request) {
     series,
     nearby,
     apartments,
+    constructionZones,
+    // 단계별 중앙 체류기간 — "1개월째"가 빠른지 느린지 비교 기준이 된다
+    stageDurations: stageDurations(),
     unavailable,
     _meta: {
       source: '경계: 서울시 의제처리구역 / 단계: 정비사업 정보몽땅 / 실거래: 국토교통부',
