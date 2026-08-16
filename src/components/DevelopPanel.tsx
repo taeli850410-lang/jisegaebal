@@ -384,16 +384,6 @@ function StatRows({
 
 const pct = (a: number, b: number) => (b > 0 ? `(${Math.round((a / b) * 100)}%)` : '')
 
-/**
- * 도면 경로를 URL 세그먼트로 만든다.
- * 서버의 encodeImagePath 와 같은 규칙 — 여기는 클라이언트라 Buffer 를 못 쓴다.
- */
-function imageToken(path: string): string {
-  const bytes = new TextEncoder().encode(path)
-  let bin = ''
-  for (const b of bytes) bin += String.fromCharCode(b)
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
 
 /** 면적 항목을 사진처럼 이름 · 막대 · "N㎡ (P%)" 로 늘어놓는다 */
 function AreaBars({
@@ -1108,7 +1098,7 @@ export default function DevelopPanel({
                     .map(([k, label]) => (
                       <a
                         key={k}
-                        href={`/api/cleanup-image/${imageToken(plan.drawings![k]!)}`}
+                        href={`https://cleanup.seoul.go.kr${plan.drawings![k]!}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="group relative block shrink-0"
@@ -1116,7 +1106,7 @@ export default function DevelopPanel({
                         {/* 원본이 1~2MB 라 썸네일로 그대로 쓰면 패널 하나에 5MB 가 든다.
                             next/image 로 리사이즈·webp 변환을 태운다. */}
                         <Image
-                          src={`/api/cleanup-image/${imageToken(plan.drawings![k]!)}`}
+                          src={`https://cleanup.seoul.go.kr${plan.drawings![k]!}`}
                           alt={label}
                           width={160}
                           height={112}

@@ -4,12 +4,19 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
 
   /**
-   * 도면 썸네일은 /api/cleanup-image 를 거쳐 온다.
-   * 로컬 dev 최적화기는 그냥 통과시키지만 Vercel 은 허용목록을 요구해
-   * INVALID_IMAGE_OPTIMIZE_REQUEST 를 돌려준다. 그 경로만 열어둔다.
+   * 정비몽땅 도면(조감도·위치도·배치도) 썸네일.
+   *
+   * 처음에는 우리 API 로 중계하고 next/image 를 태우려 했는데, Vercel 최적화기가
+   * 라우트 핸들러 응답을 소스로 받지 않는다(INVALID_IMAGE_OPTIMIZE_REQUEST).
+   * 원격 소스로 직접 두면 최적화기가 한 번 받아 CDN 에 캐시하므로,
+   * 오히려 우리가 중계할 때보다 정비몽땅을 덜 때린다.
    */
   images: {
-    localPatterns: [{ pathname: '/api/cleanup-image/**' }],
+    remotePatterns: [
+      { protocol: 'https', hostname: 'cleanup.seoul.go.kr', pathname: '/servlet/image/**' },
+      { protocol: 'https', hostname: 'cleanup.seoul.go.kr', pathname: '/servlet/image' },
+    ],
+    minimumCacheTTL: 604800,
   },
 
   /**
