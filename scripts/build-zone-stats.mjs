@@ -312,13 +312,17 @@ async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
   }
   const sigungu = ldCode.slice(0, 5)
   const bjdong = ldCode.slice(5, 10)
-  // numOfRows 는 100 이 상한이다. 더 크게 요청해도 100 만 온다.
-  // totalCount 를 보고 끝까지 넘겨야 한다.
+  /*
+   * numOfRows 는 100 이 상한이다. 법정동 하나가 5,000동이면 51페이지.
+   * 순차로 넘기면 법정동당 1분 가까이 걸려 1,690개 구역을 도는 게 불가능하다.
+   * 1페이지에서 totalCount 를 얻은 뒤 나머지는 동시에 받는다.
+   */
   const PAGE = 100
-  const MAX_PAGES = 120 // 법정동 하나에 12,000동이면 충분하다
-  const rows = []
-  let total = Infinity
-  for (let page = 1; page <= MAX_PAGES && rows.length < total; page++) {
+  const MAX_PAGES = 200
+  // 8로 올리니 표제부가 조용히 실패하기 시작했다(총괄표제부만 남았다). 4로 낮춘다.
+  const CONC = 4
+
+  const fetchPage = async (page) => {
     const qs = new URLSearchParams({
       serviceKey: DGK,
       sigunguCd: sigungu,
@@ -327,9 +331,8 @@ async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
       pageNo: String(page),
       _type: 'json',
     })
-    let got = 0
     for (let a = 0; a < 3; a++) {
-      if (a) await sleep(700 * a)
+      if (a) await sleep(600 * a)
       try {
         const t = await (
           await fetch(`https://apis.data.go.kr/1613000/BldRgstHubService/${op}?${qs}`)
@@ -337,18 +340,33 @@ async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
         if (!t.trim() || !t.trimStart().startsWith('{')) continue
         const j = JSON.parse(t)
         if (j?.response?.header?.resultCode !== '00') continue
-        total = num(j.response.body?.totalCount) || 0
         const it = j.response.body?.items?.item
-        const arr = it ? (Array.isArray(it) ? it : [it]) : []
-        rows.push(...arr)
-        got = arr.length
-        break
+        return {
+          total: num(j.response.body?.totalCount) || 0,
+          rows: it ? (Array.isArray(it) ? it : [it]) : [],
+        }
       } catch {
         /* 재시도 */
       }
     }
-    if (!got) break
-    await sleep(60)
+    return null
+  }
+
+  const first = await fetchPage(1)
+  // 실패를 빈 값으로 캐시하면 그 법정동의 모든 구역이 영구히 건물 0동이 된다.
+  // 캐시에 넣지 않고 빈 배열만 돌려 다음 구역에서 다시 시도하게 한다.
+  if (!first) return []
+  const rows = [...first.rows]
+  const pages = Math.min(MAX_PAGES, Math.ceil(first.total / PAGE))
+
+  for (let p = 2; p <= pages; p += CONC) {
+    const batch = []
+    for (let k = p; k < Math.min(p + CONC, pages + 1); k++) batch.push(k)
+    const res = await Promise.all(batch.map(fetchPage))
+    // 한 페이지라도 못 받으면 그 법정동은 불완전하다. 캐시에 굳히지 않는다.
+    if (res.some((r) => !r)) return rows
+    for (const r of res) rows.push(...r.rows)
+    await sleep(80)
   }
   bldCache.set(ck, rows)
   bldDisk[ck] = rows
