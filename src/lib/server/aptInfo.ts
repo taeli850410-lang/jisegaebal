@@ -74,12 +74,24 @@ async function resolveLot(query: string) {
   }
 }
 
-async function callRegister(op: string, p: Record<string, string>) {
+/**
+ * 건축물대장 호출.
+ *
+ * "응답은 정상인데 결과가 없음"(ok:true, rows:[])과 "호출이 실패함"(ok:false)을
+ * 반드시 구분한다. data.go.kr 은 트래픽이 몰리면 빈 본문을 돌려주는데,
+ * 이걸 "없음"으로 취급해 캐시에 박아두면 영구히 세대수가 비게 된다.
+ */
+type RegisterResult =
+  | { ok: true; rows: Record<string, unknown>[] }
+  | { ok: false }
+
+async function callRegister(op: string, p: Record<string, string>): Promise<RegisterResult> {
   const serviceKey = process.env.DATA_GO_KR_SERVICE_KEY
-  if (!serviceKey) return null
+  if (!serviceKey) return { ok: false }
   const qs = new URLSearchParams({
     ...p,
-    numOfRows: '10',
+    // 표제부는 동별로 한 건씩 나온다. 10건에서 끊으면 대단지 세대수가 잘린다.
+    numOfRows: '100',
     pageNo: '1',
     _type: 'json',
   })
@@ -88,13 +100,23 @@ async function callRegister(op: string, p: Record<string, string>) {
       `https://apis.data.go.kr/1613000/BldRgstHubService/${op}?serviceKey=${serviceKey}&${qs}`,
       { cache: 'no-store' },
     )
-    if (!res.ok) return null
-    const json = await res.json()
-    const item = json?.response?.body?.items?.item
-    if (!item) return null
-    return Array.isArray(item) ? item : [item]
+    if (!res.ok) return { ok: false }
+    const text = await res.text()
+    if (!text.trim()) return { ok: false } // 빈 본문 = 스로틀링
+    let json: {
+      response?: { header?: { resultCode?: string }; body?: { items?: { item?: unknown } } }
+    }
+    try {
+      json = JSON.parse(text)
+    } catch {
+      return { ok: false } // JSON 을 요청했는데 XML 이 오면 에러 응답이다
+    }
+    if (json?.response?.header?.resultCode !== '00') return { ok: false }
+    const item = json.response.body?.items?.item
+    if (!item) return { ok: true, rows: [] }
+    return { ok: true, rows: (Array.isArray(item) ? item : [item]) as Record<string, unknown>[] }
   } catch {
-    return null
+    return { ok: false }
   }
 }
 
@@ -113,32 +135,35 @@ export async function getAptInfo(gu: string, dong: string, jibun: string): Promi
   if (key in store) return store[key]
 
   const lot = await resolveLot(`서울 ${gu} ${dong} ${jibun}`)
-  if (!lot) {
-    store[key] = null
-    dirty = true
-    return null
-  }
+  // 지오코딩 실패는 스로틀링일 수도 있으므로 캐시에 남기지 않는다
+  if (!lot) return null
 
   // 단지형 아파트는 총괄표제부에 전체 세대수가 있다
-  let rows = await callRegister('getBrRecapTitleInfo', { ...lot, platGbCd: '0' })
+  const recap = await callRegister('getBrRecapTitleInfo', { ...lot, platGbCd: '0' })
 
   // 단동 아파트는 총괄표제부가 없어 표제부로 떨어진다
-  if (!rows?.length) {
-    rows = await callRegister('getBrTitleInfo', { ...lot, platGbCd: '0' })
-  }
+  const title =
+    recap.ok && recap.rows.length ? null : await callRegister('getBrTitleInfo', { ...lot, platGbCd: '0' })
 
-  if (!rows?.length) {
-    store[key] = null
-    dirty = true
-    persist()
+  const rows = recap.ok && recap.rows.length ? recap.rows : title?.ok ? title.rows : []
+
+  if (!rows.length) {
+    // 두 호출이 모두 "정상 응답 + 결과 없음"일 때만 없음으로 확정한다
+    if (recap.ok && title?.ok) {
+      store[key] = null
+      dirty = true
+      persist()
+    }
     return null
   }
 
   // 표제부로 떨어진 경우 동이 여러 건일 수 있어 합산한다
   const households = rows.reduce((s, r) => s + (toNum(r.hhldCnt) ?? 0), 0) || null
+  // 표제부로 떨어진 경우 상가·부속건물이 섞이므로 세대가 있는 동만 센다
+  const dwellingRows = rows.filter((r) => (toNum(r.hhldCnt) ?? 0) > 0).length
   const info: AptInfo = {
     households,
-    buildings: toNum(rows[0].mainBldCnt) ?? (rows.length > 1 ? rows.length : null),
+    buildings: toNum(rows[0].mainBldCnt) ?? (dwellingRows > 1 ? dwellingRows : null),
     useApprovalDate: toDate(rows[0].useAprDay),
     registerName: String(rows[0].bldNm ?? '').trim() || null,
   }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadKakaoMaps } from '@/lib/kakaoLoader'
 import { PROJECT_TYPE_MAP, STAGES, UNKNOWN_STAGE_COLOR, stageColor } from '@/lib/taxonomy'
-import { agingColor, escapeHtml, shortName } from '@/lib/geo'
+import { agingColor, escapeHtml, labelPoint, shortName } from '@/lib/geo'
 import { outerRings, type ApiDevelop, type DevelopsResponse } from '@/lib/types'
 import type { Parcel } from '@/app/api/parcels/route'
 import FilterBar from './FilterBar'
@@ -19,12 +19,49 @@ const INITIAL_LEVEL = 8
 const PARCEL_MAX_LEVEL = 4
 /**
  * 라벨 표시 규칙.
- * 서울은 구역 밀도가 높아 "개수 이하일 때만" 방식으로는 라벨이 거의 안 보인다.
- * 그래서 줌 레벨로 표시 여부를 정하고, 개수는 큰 구역 우선으로 잘라낸다.
- * (작은 구역은 어차피 라벨이 들어갈 자리가 없다)
+ *
+ * 서울 1,690개 구역 중 1,143개(68%)는 정비몽땅에 사업장이 없어 단계를 모른다.
+ * 이걸 단계 있는 구역과 똑같이 2줄 라벨로 띄우면 화면 라벨의 2/3가
+ * "단계 미확인"이라는 같은 글자가 되어 지도가 읽히지 않는다.
+ *
+ * 그래서 ① 단계가 있는 구역을 먼저 배치하고, ② 단계 미확인은 충분히
+ * 확대했을 때만 이름 한 줄짜리 작은 라벨로 남긴다. (경계는 항상 그린다)
  */
 const LABEL_MAX_LEVEL = 6
-const LABEL_MAX_COUNT = 120
+/** 단계 미확인 구역에 이름 라벨을 허용하는 줌 (이보다 확대해야 보인다) */
+const UNKNOWN_LABEL_MAX_LEVEL = 4
+const LABEL_MAX_COUNT = 40
+
+/**
+ * 라벨이 차지할 화면 크기.
+ *
+ * 글자 수 × 상수로 어림하면 실제 렌더 폭과 어긋나 겹침 판정이 헐거워진다.
+ * 캔버스로 같은 폰트의 실제 텍스트 폭을 재서 판정한다. (레이아웃을 건드리지 않아 싸다)
+ */
+let measureCtx: CanvasRenderingContext2D | null = null
+function textWidth(text: string, font: string): number {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d')
+  if (!measureCtx) return text.length * 12
+  measureCtx.font = font
+  return measureCtx.measureText(text).width
+}
+
+const HEAD_FONT = '800 12px system-ui, sans-serif'
+const TYPE_FONT = '800 10.5px system-ui, sans-serif'
+const STAGE_FONT = '700 11px system-ui, sans-serif'
+const QUIET_FONT = '700 11px system-ui, sans-serif'
+
+function labelBox(d: ApiDevelop): { w: number; h: number } {
+  const name = shortName(d.name)
+  if (!d.stage) {
+    return { w: textWidth(shortName(d.name, 10), QUIET_FONT) + 14, h: 20 }
+  }
+  const type = PROJECT_TYPE_MAP.get(d.projectType)?.short ?? ''
+  // 머리: 좌우 패딩 18 + 유형 글자 + 간격 5
+  const head = textWidth(name, HEAD_FONT) + (type ? textWidth(type, TYPE_FONT) + 5 : 0) + 18
+  const stage = textWidth(d.stage, STAGE_FONT) + 21 // 패딩 18 + 좌측 색 띠 3
+  return { w: Math.max(head, stage), h: 44 }
+}
 
 export default function MapView() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -195,9 +232,12 @@ export default function MapView() {
     /**
      * 라벨 선별 — 서울은 구역이 촘촘해 그냥 다 그리면 라벨이 서로 덮어 읽을 수 없다.
      *  1) 같은 이름은 가장 큰 구역 하나만
-     *  2) 큰 구역부터 배치하되, 이미 놓인 라벨과 화면에서 겹치면 건너뛴다
+     *  2) 단계가 있는 구역 → 단계 미확인 순으로, 각 그룹 안에서는 큰 구역부터
+     *  3) 이미 놓인 라벨과 화면에서 겹치면 건너뛴다
      */
     const labelIds = new Set<string>()
+    const anchors = new Map<string, { lat: number; lng: number }>()
+
     if (level <= LABEL_MAX_LEVEL) {
       const pickedByName = new Map<string, ApiDevelop>()
       for (const d of develops) {
@@ -208,21 +248,27 @@ export default function MapView() {
 
       const projection = map.getProjection()
       const placed: { l: number; t: number; r: number; b: number }[] = []
-      const GAP = 6
+      const GAP = 10
 
-      for (const d of [...pickedByName.values()].sort((a, b) => b.areaM2 - a.areaM2)) {
+      // 단계 있는 구역이 항상 우선권을 갖는다
+      const candidates = [...pickedByName.values()]
+        .filter((d) => !!d.stage || level <= UNKNOWN_LABEL_MAX_LEVEL)
+        .sort((a, b) => {
+          const s = Number(!!b.stage) - Number(!!a.stage)
+          return s !== 0 ? s : b.areaM2 - a.areaM2
+        })
+
+      for (const d of candidates) {
         if (labelIds.size >= LABEL_MAX_COUNT) break
 
+        const p = labelPoint(outerRings(d.geometry))
         const [minLng, minLat, maxLng, maxLat] = d.bbox
-        const center = new kakao.maps.LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2)
-        const pt = projection.containerPointFromCoords(center)
+        const anchor = p
+          ? { lng: p[0], lat: p[1] }
+          : { lng: (minLng + maxLng) / 2, lat: (minLat + maxLat) / 2 }
+        const pt = projection.containerPointFromCoords(new kakao.maps.LatLng(anchor.lat, anchor.lng))
 
-        // 실제 렌더 크기를 재기 전이므로 글자 수로 근사한다
-        const nameLen = shortName(d.name).length
-        const stageLen = (d.stage ?? '단계 미확인').length
-        const w = Math.max(38 + nameLen * 12, stageLen * 11 + 20)
-        const h = 44
-
+        const { w, h } = labelBox(d)
         const box = {
           l: pt.x - w / 2 - GAP,
           t: pt.y - h / 2 - GAP,
@@ -230,12 +276,13 @@ export default function MapView() {
           b: pt.y + h / 2 + GAP,
         }
         const hits = placed.some(
-          (p) => !(box.r <= p.l || p.r <= box.l || box.b <= p.t || p.b <= box.t),
+          (p2) => !(box.r <= p2.l || p2.r <= box.l || box.b <= p2.t || p2.b <= box.t),
         )
         if (hits) continue
 
         placed.push(box)
         labelIds.add(d.id)
+        anchors.set(d.id, anchor)
       }
     }
 
@@ -248,13 +295,14 @@ export default function MapView() {
 
       outerRings(d.geometry).forEach((ring) => {
         const path = ring.map(([lng, lat]) => new kakao.maps.LatLng(lat, lng))
-        const baseOpacity = known ? 0.22 : 0.1
+        // 미확인 구역이 1,143개라 조금만 진해도 회색이 지도를 덮는다
+        const baseOpacity = known ? 0.22 : 0.05
         const polygon = new kakao.maps.Polygon({
           map,
           path,
-          strokeWeight: known ? 2 : 1.5,
+          strokeWeight: known ? 2 : 1,
           strokeColor: fill,
-          strokeOpacity: known ? 0.95 : 0.55,
+          strokeOpacity: known ? 0.95 : 0.35,
           // 단계 미확인 구역은 점선으로 한 번 더 구분한다
           strokeStyle: known ? 'solid' : 'shortdash',
           fillColor: fill,
@@ -275,22 +323,29 @@ export default function MapView() {
 
       if (labelIds.has(d.id)) {
         const [minLng, minLat, maxLng, maxLat] = d.bbox
+        const a = anchors.get(d.id) ?? { lng: (minLng + maxLng) / 2, lat: (minLat + maxLat) / 2 }
         const sColor = stageColor(d.canonicalStage)
-        const stageText = d.stage ?? '단계 미확인'
-        const label = new kakao.maps.CustomOverlay({
-          map,
-          position: new kakao.maps.LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2),
-          yAnchor: 0.5,
-          clickable: false,
-          // 라벨 머리도 폴리곤과 같은 진행단계 색으로 칠한다.
-          // 사업종류 색을 쓰면 폴리곤(단계색)과 어긋나 같은 구역인데 두 색이 충돌한다.
-          // 사업종류는 안쪽 칩의 글자로 전달한다.
-          content: `<div class="develop-label${d.stage ? '' : ' develop-label--unknown'}">
+
+        // 라벨 머리도 폴리곤과 같은 진행단계 색으로 칠한다.
+        // 사업종류 색을 쓰면 폴리곤(단계색)과 어긋나 같은 구역인데 두 색이 충돌한다.
+        // 사업종류는 같은 색 띠 안에 인라인 글자로 얹는다 — 별도 칩은 폭만 먹는다.
+        const content = d.stage
+          ? `<div class="develop-label">
               <div class="develop-label__head" style="background:${sColor}">
                 <span class="develop-label__type">${escapeHtml(type?.short ?? '')}</span>${escapeHtml(shortName(d.name))}
               </div>
-              <div class="develop-label__stage" style="color:${sColor}">${escapeHtml(stageText)}</div>
-            </div>`,
+              <div class="develop-label__stage" style="color:${sColor}">${escapeHtml(d.stage)}</div>
+            </div>`
+          : // 단계를 모르는 구역까지 2줄로 띄우면 "단계 미확인"만 화면을 덮는다.
+            // 이름만 조용히 남기고, 단계는 클릭해서 상세에서 본다.
+            `<div class="develop-label develop-label--quiet">${escapeHtml(shortName(d.name, 10))}</div>`
+
+        const label = new kakao.maps.CustomOverlay({
+          map,
+          position: new kakao.maps.LatLng(a.lat, a.lng),
+          yAnchor: 0.5,
+          clickable: false,
+          content,
         })
         labelsRef.current.push(label)
       }

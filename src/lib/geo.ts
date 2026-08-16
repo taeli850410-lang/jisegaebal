@@ -149,6 +149,79 @@ export function shortName(name: string, max = 12): string {
   return s.length > max ? `${s.slice(0, max)}…` : s
 }
 
+/**
+ * 라벨을 붙일 구역 내부 점.
+ *
+ * bbox 중심을 쓰면 ㄱ자·ㄷ자 구역이나 여러 조각으로 나뉜 구역에서
+ * 그 점이 구역 바깥으로 떨어진다(서울 1,690개 중 111개). 그러면 라벨이
+ * 엉뚱한 빈 땅에 떠서 어느 구역 것인지 읽을 수 없다.
+ *
+ * 가장 큰 링을 골라 무게중심을 쓰되, 그 점이 링 밖이면
+ * 무게중심의 위도선을 링과 교차시켜 가장 긴 내부 구간의 중점을 쓴다.
+ */
+export function labelPoint(rings: number[][][]): [number, number] | null {
+  let best: number[][] | null = null
+  let bestArea = -1
+  for (const ring of rings) {
+    const a = Math.abs(signedArea(ring))
+    if (a > bestArea) {
+      bestArea = a
+      best = ring
+    }
+  }
+  if (!best || best.length < 3) return null
+
+  const c = areaCentroid(best)
+  if (pointInRing(c[0], c[1], best as Ring)) return c
+
+  // 무게중심이 밖이다 — 같은 위도에서 가장 넓은 내부 구간을 찾는다
+  const xs: number[] = []
+  for (let i = 0, j = best.length - 1; i < best.length; j = i++) {
+    const [xi, yi] = best[i]
+    const [xj, yj] = best[j]
+    if (yi > c[1] !== yj > c[1]) xs.push(((xj - xi) * (c[1] - yi)) / (yj - yi) + xi)
+  }
+  xs.sort((a, b) => a - b)
+  let span = -1
+  let x = c[0]
+  for (let i = 0; i + 1 < xs.length; i += 2) {
+    const w = xs[i + 1] - xs[i]
+    if (w > span) {
+      span = w
+      x = (xs[i] + xs[i + 1]) / 2
+    }
+  }
+  return span > 0 ? [x, c[1]] : c
+}
+
+function signedArea(ring: number[][]): number {
+  let s = 0
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    s += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1])
+  }
+  return s / 2
+}
+
+/**
+ * 면적 가중 무게중심.
+ *
+ * 위의 centroid()는 꼭짓점 평균이라 경계가 촘촘한 쪽으로 끌려간다.
+ * 라벨 자리는 도형의 실제 중심이어야 하므로 여기서는 면적으로 가중한다.
+ */
+function areaCentroid(ring: number[][]): [number, number] {
+  let x = 0
+  let y = 0
+  let a = 0
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const f = ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1]
+    a += f
+    x += (ring[j][0] + ring[i][0]) * f
+    y += (ring[j][1] + ring[i][1]) * f
+  }
+  if (!a) return [ring[0][0], ring[0][1]]
+  return [x / (3 * a), y / (3 * a)]
+}
+
 export function formatPerPyeong(won: number): string {
   const eok = won / 100_000_000
   if (eok >= 1) return `${eok.toFixed(1)}억/평`

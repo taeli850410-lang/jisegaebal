@@ -53,13 +53,11 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* 사업종류 축약 — 같은 색 위에 살짝 밝은 칩으로 얹는다 */
+/* 사업종류 축약 — 별도 칩으로 만들면 폭만 먹으므로 같은 띠 안에 흐린 글자로 얹는다 */
 .develop-label__type {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgb(255 255 255 / 0.26);
   font-size: 10.5px;
   font-weight: 800;
+  opacity: 0.72;
 }
 
 .develop-label__stage {
@@ -74,8 +72,18 @@ body {
   border-left: 3px solid currentColor;
 }
 
-.develop-label--unknown .develop-label__stage {
-  font-weight: 600;
+/* 단계 미확인 — 이름만 한 줄. 지도를 덮지 않도록 그림자도 뺀다. */
+.develop-label--quiet {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 0.88);
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+  box-shadow: none;
+  border: 1px solid rgb(148 163 184 / 0.45);
 }
 
 /* ── 이중 범위 슬라이더 ──────────────────────────────
