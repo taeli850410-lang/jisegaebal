@@ -1,7 +1,8 @@
 'use client'
 
-import { PROJECT_TYPE_MAP } from '@/lib/taxonomy'
+import { PROJECT_TYPE_MAP, stageColor } from '@/lib/taxonomy'
 import type { ApiDevelop } from '@/lib/types'
+import type { PanelKey } from './SidePanel'
 
 export default function Sidebar({
   develops,
@@ -9,15 +10,19 @@ export default function Sidebar({
   truncated,
   loading,
   onSelect,
+  onOpenPanel,
+  favoriteCount,
 }: {
   develops: ApiDevelop[]
   total: number
   truncated: boolean
   loading: boolean
   onSelect: (d: ApiDevelop) => void
+  onOpenPanel: (key: PanelKey) => void
+  favoriteCount: number
 }) {
   return (
-    <aside className="flex w-[340px] shrink-0 flex-col border-r border-gray-200 bg-white">
+    <aside className="relative flex w-[340px] shrink-0 flex-col border-r border-gray-200 bg-white">
       <div className="border-b border-gray-100 px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded bg-indigo-900 text-sm font-black text-white">
@@ -35,17 +40,28 @@ export default function Sidebar({
       </div>
 
       <div className="grid grid-cols-6 gap-1 border-b border-gray-100 px-2 py-2.5 text-center">
-        {[
-          ['🔥', '인기'],
-          ['⭐', '관심'],
-          ['✨', '신규'],
-          ['📊', '실거래'],
-          ['🏢', '매물'],
-          ['🔨', '경매'],
-        ].map(([icon, label]) => (
-          <button key={label} className="rounded-lg py-1 hover:bg-gray-50">
+        {(
+          [
+            ['🔥', '인기', 'hot'],
+            ['⭐', '관심', 'favorites'],
+            ['✨', '신규', 'new'],
+            ['📊', '실거래', 'transactions'],
+            ['🏢', '매물', 'listings'],
+            ['🔨', '경매', 'auctions'],
+          ] as const
+        ).map(([icon, label, key]) => (
+          <button
+            key={label}
+            onClick={() => onOpenPanel(key)}
+            className="relative rounded-lg py-1 hover:bg-gray-50"
+          >
             <div className="text-lg">{icon}</div>
             <div className="text-[11px] text-gray-600">{label}</div>
+            {key === 'favorites' && favoriteCount > 0 && (
+              <span className="absolute top-0 right-1 rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
+                {favoriteCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -71,7 +87,13 @@ export default function Sidebar({
             지도를 이동하거나 축소해 보세요.
           </p>
         )}
-        {develops.map((d, i) => {
+        {/* 원본에 같은 이름·면적의 도형이 여러 건 들어 있어 목록이 지저분해진다. 하나만 남긴다. */}
+        {develops
+          .filter(
+            (d, i, arr) =>
+              arr.findIndex((x) => x.name === d.name && x.areaM2 === d.areaM2) === i,
+          )
+          .map((d, i) => {
           const type = PROJECT_TYPE_MAP.get(d.projectType)
           return (
             <button
@@ -91,13 +113,19 @@ export default function Sidebar({
                 <span className="truncate text-sm font-bold">{d.name}</span>
               </div>
               <p className="mt-1 flex items-center gap-1.5 text-xs">
-                {d.stage ? (
-                  <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-semibold text-indigo-700">
-                    {d.stage}
-                  </span>
-                ) : (
-                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-400">단계 미확인</span>
-                )}
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 font-bold"
+                  style={
+                    d.stage
+                      ? {
+                          color: stageColor(d.canonicalStage),
+                          background: `${stageColor(d.canonicalStage)}1A`,
+                        }
+                      : { color: '#9CA3AF', background: '#F3F4F6' }
+                  }
+                >
+                  {d.stage ?? '단계 미확인'}
+                </span>
                 <span className="truncate text-gray-500">{d.rawLabel}</span>
               </p>
               <p className="mt-1 text-xs text-gray-400">
@@ -105,8 +133,8 @@ export default function Sidebar({
                 {d.areaM2 > 0 && ` (${Math.round(d.areaM2 / 3.3058).toLocaleString()}평)`}
               </p>
             </button>
-          )
-        })}
+            )
+          })}
       </div>
 
       <p className="border-t border-gray-100 px-4 py-2.5 text-[10px] leading-relaxed text-gray-400">

@@ -1,6 +1,8 @@
 'use client'
 
-import { PROJECT_TYPE_MAP, STAGES, STAGE_MAP } from '@/lib/taxonomy'
+import { useEffect, useState } from 'react'
+import { PROJECT_TYPE_MAP, STAGES, STAGE_MAP, stageColor } from '@/lib/taxonomy'
+import { isFavorite, toggleFavorite } from '@/lib/userStore'
 import type { ApiDevelop } from '@/lib/types'
 
 /** 매칭 방식에 따라 신뢰도가 다르다 — 숨기지 않고 드러낸다 */
@@ -37,6 +39,10 @@ export default function DevelopPanel({
   const pyeong = Math.round(develop.areaM2 / 3.3058)
   const canonical = develop.canonicalStage ? STAGE_MAP.get(develop.canonicalStage) : null
   const match = develop.stageMatchBy ? MATCH_LABEL[develop.stageMatchBy] : null
+  const sColor = stageColor(develop.canonicalStage)
+
+  const [fav, setFav] = useState(false)
+  useEffect(() => setFav(isFavorite(develop.id)), [develop.id])
 
   return (
     <aside className="thin-scroll absolute top-0 right-0 bottom-0 z-30 w-[380px] overflow-y-auto border-l border-gray-200 bg-white shadow-xl">
@@ -50,18 +56,38 @@ export default function DevelopPanel({
               {type?.label}
             </span>
             <h2 className="mt-1.5 text-lg leading-snug font-bold break-keep">{develop.name}</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              {develop.stage ?? develop.rawLabel}
-              {develop.gu && <span className="ml-1 text-gray-400">· {develop.gu}</span>}
-              <Grade grade={match?.grade ?? 'A'} />
+            <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm">
+              <span
+                className="rounded px-1.5 py-0.5 text-xs font-bold"
+                style={
+                  develop.stage
+                    ? { color: sColor, background: `${sColor}1A` }
+                    : { color: '#9CA3AF', background: '#F3F4F6' }
+                }
+              >
+                {develop.stage ?? '단계 미확인'}
+              </span>
+              {develop.gu && <span className="text-xs text-gray-400">{develop.gu}</span>}
+              {match && <Grade grade={match.grade} />}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="shrink-0 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-          >
-            ✕
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={() => setFav(toggleFavorite(develop.id))}
+              aria-label={fav ? '관심 구역에서 제거' : '관심 구역에 추가'}
+              className={`rounded p-1.5 text-lg leading-none ${
+                fav ? 'text-rose-500' : 'text-gray-300 hover:text-rose-400'
+              }`}
+            >
+              {fav ? '♥' : '♡'}
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       </div>
 
@@ -78,13 +104,11 @@ export default function DevelopPanel({
                   return (
                     <li key={s.code} className="flex items-center gap-2 py-1">
                       <span
-                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                          current
-                            ? 'bg-indigo-600 ring-4 ring-indigo-100'
-                            : done
-                              ? 'bg-indigo-400'
-                              : 'bg-gray-200'
-                        }`}
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{
+                          background: current || done ? s.color : '#E5E7EB',
+                          boxShadow: current ? `0 0 0 4px ${s.color}22` : undefined,
+                        }}
                       />
                       <span
                         className={`text-sm ${

@@ -28,6 +28,13 @@ export interface StoredDevelop {
   bbox: [number, number, number, number]
   geometry: Geometry
 
+  /* ── scripts/enrich-develops.mjs 로 채워지는 항목 ── */
+  /** 중심좌표 역지오코딩으로 얻은 자치구 (SIGNGU_SE는 대부분 '11000'이라 못 쓴다) */
+  dong?: string
+  /** 고시 일련번호에서 뽑은 고시일 (YYYY-MM-DD) */
+  noticeDate?: string | null
+  center?: [number, number]
+
   /* ── 정비몽땅 매칭으로 채워지는 항목 (미매칭 구역은 비어 있다) ── */
   stage?: string
   canonicalStage?: string | null
@@ -69,6 +76,7 @@ export function getAllDevelops(): StoredDevelop[] {
 
   cache = base.map((d) => {
     const s = byId.get(d.id)
+    // gu는 enrich 단계에서 이미 채워져 있다. 정비몽땅 값으로 덮어쓰지 않는다.
     return s
       ? {
           ...d,
@@ -77,7 +85,7 @@ export function getAllDevelops(): StoredDevelop[] {
           stageSiteName: s.siteName,
           stageBizType: s.bizType,
           stageMatchBy: s.matchBy,
-          gu: s.gu,
+          gu: d.gu ?? s.gu,
         }
       : d
   })
@@ -140,6 +148,82 @@ function limitForLevel(level: number): number {
   if (level <= 5) return 900
   if (level <= 7) return 600
   return 400
+}
+
+/** 목록 화면용 경량 레코드 — 지오메트리를 뺀다 (사이드 패널은 지도를 안 그린다) */
+export interface DevelopBrief {
+  id: string
+  name: string
+  projectType: string
+  rawLabel: string
+  areaM2: number
+  gu: string | null
+  dong: string | null
+  noticeDate: string | null
+  stage: string | null
+  canonicalStage: string | null
+  center: [number, number] | null
+  bbox: [number, number, number, number]
+}
+
+function toBrief(d: StoredDevelop): DevelopBrief {
+  return {
+    id: d.id,
+    name: d.name,
+    projectType: d.projectType,
+    rawLabel: d.rawLabel,
+    areaM2: d.areaM2,
+    gu: d.gu ?? null,
+    dong: d.dong ?? null,
+    noticeDate: d.noticeDate ?? null,
+    stage: d.stage ?? null,
+    canonicalStage: d.canonicalStage ?? null,
+    center: d.center ?? null,
+    bbox: d.bbox,
+  }
+}
+
+export interface BrowseQuery {
+  gu?: string
+  ids?: string[]
+  sort?: 'notice' | 'name' | 'area'
+  limit?: number
+}
+
+/** 지도 뷰포트와 무관한 목록 조회 (인기·관심·신규·지역별 패널용) */
+export function browseDevelops({ gu, ids, sort = 'notice', limit = 50 }: BrowseQuery) {
+  const all = getAllDevelops()
+
+  if (ids?.length) {
+    // 요청한 순서를 그대로 유지한다 (조회순·추가순 등 순서 자체가 의미를 가짐)
+    const byId = new Map(all.map((d) => [d.id, d]))
+    const items = ids.map((id) => byId.get(id)).filter((d): d is StoredDevelop => !!d)
+    return { total: items.length, items: items.map(toBrief) }
+  }
+
+  let hits = gu ? all.filter((d) => d.gu === gu) : all
+
+  if (sort === 'notice') {
+    hits = [...hits].sort((a, b) => (b.noticeDate ?? '').localeCompare(a.noticeDate ?? ''))
+  } else if (sort === 'name') {
+    hits = [...hits].sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+  } else {
+    hits = [...hits].sort((a, b) => b.areaM2 - a.areaM2)
+  }
+
+  return { total: hits.length, items: hits.slice(0, limit).map(toBrief) }
+}
+
+/** 자치구별 구역 수 — 지역 선택 드롭다운에 개수를 함께 보여준다 */
+export function guCounts(): { gu: string; count: number }[] {
+  const map = new Map<string, number>()
+  for (const d of getAllDevelops()) {
+    if (!d.gu) continue
+    map.set(d.gu, (map.get(d.gu) ?? 0) + 1)
+  }
+  return [...map.entries()]
+    .map(([gu, count]) => ({ gu, count }))
+    .sort((a, b) => a.gu.localeCompare(b.gu, 'ko'))
 }
 
 export interface DevelopQuery {

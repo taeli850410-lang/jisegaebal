@@ -115,6 +115,10 @@ export default function FilterBar({
                       onChange={() => onToggleStage(s.code)}
                       className="h-4 w-4 accent-indigo-600"
                     />
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-sm"
+                      style={{ background: s.color }}
+                    />
                     <span className="text-sm text-gray-700">{s.label}</span>
                   </label>
                 ))}

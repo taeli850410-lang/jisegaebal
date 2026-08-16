@@ -22,35 +22,60 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 지도 위 구역 라벨 (CustomOverlay) */
+/* ── 지도 위 구역 라벨 (CustomOverlay) ──────────────────────────
+   위: 사업종류 + 구역명 (사업종류 색)
+   아래: 진행단계 (단계 색)
+   두 줄을 하나의 카드로 붙여 지도 위에서 덩어리로 읽히게 한다.        */
 .develop-label {
   transform: translate(-50%, -50%);
   white-space: nowrap;
   pointer-events: none;
-  text-align: center;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  border-radius: 7px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.28),
+    0 4px 10px rgb(0 0 0 / 0.14);
+  font-family: inherit;
 }
 
-.develop-label__name {
-  display: inline-block;
-  padding: 3px 8px;
-  border-radius: 4px;
+.develop-label__head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
+  line-height: 1.25;
   color: #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+  letter-spacing: -0.02em;
+}
+
+/* 사업종류 축약 — 같은 색 위에 살짝 밝은 칩으로 얹는다 */
+.develop-label__type {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.26);
+  font-size: 10.5px;
+  font-weight: 800;
 }
 
 .develop-label__stage {
-  display: inline-block;
-  margin-top: 2px;
-  padding: 2px 7px;
-  border-radius: 4px;
+  padding: 3px 9px;
   background: #fff;
   font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  letter-spacing: -0.02em;
+  /* 좌측 색 띠로 단계를 한 번 더 인코딩한다 (색약 대응) */
+  border-left: 3px solid currentColor;
+}
+
+.develop-label--unknown .develop-label__stage {
   font-weight: 600;
-  color: #374151;
-  border: 1px solid var(--line);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
 }
 
 .thin-scroll::-webkit-scrollbar {

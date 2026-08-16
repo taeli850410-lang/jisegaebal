@@ -2,21 +2,29 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadKakaoMaps } from '@/lib/kakaoLoader'
-import { PROJECT_TYPE_MAP } from '@/lib/taxonomy'
-import { agingColor } from '@/lib/geo'
+import { PROJECT_TYPE_MAP, STAGES, UNKNOWN_STAGE_COLOR, stageColor } from '@/lib/taxonomy'
+import { agingColor, escapeHtml, shortName } from '@/lib/geo'
 import { outerRings, type ApiDevelop, type DevelopsResponse } from '@/lib/types'
 import type { Parcel } from '@/app/api/parcels/route'
 import FilterBar from './FilterBar'
 import { LayerToggles, ToolPanel, type LayerState, type ToolState } from './MapToolbar'
 import DevelopPanel from './DevelopPanel'
 import Sidebar from './Sidebar'
+import SidePanel, { type PanelKey } from './SidePanel'
+import { getFavorites, recordView, subscribeStore } from '@/lib/userStore'
 
 const INITIAL_CENTER = { lat: 37.5502, lng: 126.9908 } // 서울 중심
 const INITIAL_LEVEL = 8
 /** 이 레벨보다 확대해야 필지를 그린다 (카카오는 숫자가 작을수록 확대) */
 const PARCEL_MAX_LEVEL = 4
-/** 라벨이 너무 많으면 DOM이 폭발하므로 이 개수 이하일 때만 표시 */
-const LABEL_MAX_COUNT = 70
+/**
+ * 라벨 표시 규칙.
+ * 서울은 구역 밀도가 높아 "개수 이하일 때만" 방식으로는 라벨이 거의 안 보인다.
+ * 그래서 줌 레벨로 표시 여부를 정하고, 개수는 큰 구역 우선으로 잘라낸다.
+ * (작은 구역은 어차피 라벨이 들어갈 자리가 없다)
+ */
+const LABEL_MAX_LEVEL = 6
+const LABEL_MAX_COUNT = 120
 
 export default function MapView() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -63,6 +71,10 @@ export default function MapView() {
   const [selected, setSelected] = useState<ApiDevelop | null>(null)
 
   const [withStage, setWithStage] = useState(0)
+  const [legendOpen, setLegendOpen] = useState(false)
+  const [panel, setPanel] = useState<PanelKey | null>(null)
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null)
+  const [favCount, setFavCount] = useState(0)
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
   const [selectedStages, setSelectedStages] = useState<Set<string>>(new Set())
   const [layers, setLayers] = useState<LayerState>({
@@ -179,7 +191,52 @@ export default function MapView() {
     polygonsRef.current = []
     labelsRef.current = []
 
-    const showLabels = develops.length <= LABEL_MAX_COUNT
+    /**
+     * 라벨 선별 — 서울은 구역이 촘촘해 그냥 다 그리면 라벨이 서로 덮어 읽을 수 없다.
+     *  1) 같은 이름은 가장 큰 구역 하나만
+     *  2) 큰 구역부터 배치하되, 이미 놓인 라벨과 화면에서 겹치면 건너뛴다
+     */
+    const labelIds = new Set<string>()
+    if (level <= LABEL_MAX_LEVEL) {
+      const pickedByName = new Map<string, ApiDevelop>()
+      for (const d of develops) {
+        const key = shortName(d.name)
+        const prev = pickedByName.get(key)
+        if (!prev || d.areaM2 > prev.areaM2) pickedByName.set(key, d)
+      }
+
+      const projection = map.getProjection()
+      const placed: { l: number; t: number; r: number; b: number }[] = []
+      const GAP = 6
+
+      for (const d of [...pickedByName.values()].sort((a, b) => b.areaM2 - a.areaM2)) {
+        if (labelIds.size >= LABEL_MAX_COUNT) break
+
+        const [minLng, minLat, maxLng, maxLat] = d.bbox
+        const center = new kakao.maps.LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2)
+        const pt = projection.containerPointFromCoords(center)
+
+        // 실제 렌더 크기를 재기 전이므로 글자 수로 근사한다
+        const nameLen = shortName(d.name).length
+        const stageLen = (d.stage ?? '단계 미확인').length
+        const w = Math.max(38 + nameLen * 12, stageLen * 11 + 20)
+        const h = 44
+
+        const box = {
+          l: pt.x - w / 2 - GAP,
+          t: pt.y - h / 2 - GAP,
+          r: pt.x + w / 2 + GAP,
+          b: pt.y + h / 2 + GAP,
+        }
+        const hits = placed.some(
+          (p) => !(box.r <= p.l || p.r <= box.l || box.b <= p.t || p.b <= box.t),
+        )
+        if (hits) continue
+
+        placed.push(box)
+        labelIds.add(d.id)
+      }
+    }
 
     develops.forEach((d) => {
       const type = PROJECT_TYPE_MAP.get(d.projectType)
@@ -207,22 +264,26 @@ export default function MapView() {
         polygonsRef.current.push(polygon)
       })
 
-      if (showLabels) {
+      if (labelIds.has(d.id)) {
         const [minLng, minLat, maxLng, maxLat] = d.bbox
+        const sColor = stageColor(d.canonicalStage)
+        const stageText = d.stage ?? '단계 미확인'
         const label = new kakao.maps.CustomOverlay({
           map,
           position: new kakao.maps.LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2),
           yAnchor: 0.5,
           clickable: false,
-          content: `<div class="develop-label">
-              <div class="develop-label__name" style="background:${color}">${d.name}</div><br/>
-              <div class="develop-label__stage">${d.stage ?? d.rawLabel}</div>
+          content: `<div class="develop-label${d.stage ? '' : ' develop-label--unknown'}">
+              <div class="develop-label__head" style="background:${color}">
+                <span class="develop-label__type">${escapeHtml(type?.short ?? '')}</span>${escapeHtml(shortName(d.name))}
+              </div>
+              <div class="develop-label__stage" style="color:${sColor}">${escapeHtml(stageText)}</div>
             </div>`,
         })
         labelsRef.current.push(label)
       }
     })
-  }, [ready, develops])
+  }, [ready, develops, level])
 
   /* ─────────────── 4. 필지(지적도·노후도) ─────────────── */
   const drawParcels = useCallback(async () => {
@@ -435,17 +496,41 @@ export default function MapView() {
     map.setLevel(Math.min(14, Math.max(1, map.getLevel() + delta)))
   }
 
-  const focusDevelop = (d: ApiDevelop) => {
-    setSelected(d)
+  const focusByBounds = (bbox: [number, number, number, number]) => {
     const map = mapRef.current
     if (!map) return
     const kakao = window.kakao
-    const bounds = new kakao.maps.LatLngBounds(
-      new kakao.maps.LatLng(d.bbox[1], d.bbox[0]),
-      new kakao.maps.LatLng(d.bbox[3], d.bbox[2]),
+    map.setBounds(
+      new kakao.maps.LatLngBounds(
+        new kakao.maps.LatLng(bbox[1], bbox[0]),
+        new kakao.maps.LatLng(bbox[3], bbox[2]),
+      ),
     )
-    map.setBounds(bounds)
   }
+
+  const focusDevelop = (d: ApiDevelop) => {
+    setSelected(d)
+    recordView(d.id)
+    focusByBounds(d.bbox)
+  }
+
+  /** 패널에서 고른 구역은 지도 응답이 도착한 뒤에 상세를 연다 */
+  useEffect(() => {
+    if (!pendingSelectId) return
+    const hit = develops.find((d) => d.id === pendingSelectId)
+    if (hit) {
+      setSelected(hit)
+      recordView(hit.id)
+      setPendingSelectId(null)
+    }
+  }, [develops, pendingSelectId])
+
+  /** 관심 구역 수 (배지용) */
+  useEffect(() => {
+    const sync = () => setFavCount(getFavorites().length)
+    sync()
+    return subscribeStore(sync)
+  }, [])
 
   const parcelHint =
     (tools.cadastral || tools.aging) && level > PARCEL_MAX_LEVEL
@@ -457,13 +542,29 @@ export default function MapView() {
 
   return (
     <div className="flex h-full">
-      <Sidebar
-        develops={develops}
-        total={totalInView}
-        truncated={truncated}
-        loading={loading}
-        onSelect={focusDevelop}
-      />
+      <div className="relative flex">
+        <Sidebar
+          develops={develops}
+          total={totalInView}
+          truncated={truncated}
+          loading={loading}
+          onSelect={focusDevelop}
+          onOpenPanel={setPanel}
+          favoriteCount={favCount}
+        />
+        {panel && (
+          <SidePanel
+            panel={panel}
+            onClose={() => setPanel(null)}
+            onSelect={(b) => {
+              setPanel(null)
+              focusByBounds(b.bbox)
+              // 상세는 지도 응답이 오면 폴리곤 클릭 없이도 열리도록 id로 지정한다
+              setPendingSelectId(b.id)
+            }}
+          />
+        )}
+      </div>
 
       <main className="relative flex-1">
         <div ref={containerRef} className="h-full w-full bg-gray-100" />
@@ -608,6 +709,46 @@ export default function MapView() {
               {virtualZone.points}개
             </div>
           )}
+          {/* 진행단계 색상 범례 — 지도를 가리지 않도록 기본은 접어둔다 */}
+          <div className="rounded-lg border border-gray-200 bg-white/95 shadow-sm">
+            <button
+              onClick={() => setLegendOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600"
+            >
+              <span className="flex gap-0.5">
+                {STAGES.slice(3, 11).map((s) => (
+                  <i
+                    key={s.code}
+                    className="inline-block h-2.5 w-2.5 rounded-sm"
+                    style={{ background: s.color }}
+                  />
+                ))}
+              </span>
+              진행단계 색상
+              <span className="text-gray-400">{legendOpen ? '▾' : '▸'}</span>
+            </button>
+            {legendOpen && (
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-gray-100 px-3 py-2">
+                {STAGES.map((s) => (
+                  <span key={s.code} className="flex items-center gap-1.5 text-[11px] text-gray-600">
+                    <i
+                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
+                      style={{ background: s.color }}
+                    />
+                    {s.label}
+                  </span>
+                ))}
+                <span className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                  <i
+                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
+                    style={{ background: UNKNOWN_STAGE_COLOR }}
+                  />
+                  단계 미확인
+                </span>
+              </div>
+            )}
+          </div>
+
           {tools.aging && (
             <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white/95 px-3 py-1.5 text-[11px] shadow-sm">
               <span className="text-gray-500">노후</span>
