@@ -241,8 +241,7 @@ export default function MapView() {
 
     develops.forEach((d) => {
       const type = PROJECT_TYPE_MAP.get(d.projectType)
-      const typeColor = type?.color ?? '#666'
-      // 폴리곤은 진행단계 색으로 칠한다 (사업종류는 라벨 상단 배지가 담당).
+      // 폴리곤·라벨 모두 진행단계 색으로 통일한다.
       // 지도에서 "어디까지 진행됐나"가 한눈에 읽히는 쪽이 훨씬 유용하다.
       const fill = stageColor(d.canonicalStage)
       const known = !!d.stage
@@ -283,8 +282,11 @@ export default function MapView() {
           position: new kakao.maps.LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2),
           yAnchor: 0.5,
           clickable: false,
+          // 라벨 머리도 폴리곤과 같은 진행단계 색으로 칠한다.
+          // 사업종류 색을 쓰면 폴리곤(단계색)과 어긋나 같은 구역인데 두 색이 충돌한다.
+          // 사업종류는 안쪽 칩의 글자로 전달한다.
           content: `<div class="develop-label${d.stage ? '' : ' develop-label--unknown'}">
-              <div class="develop-label__head" style="background:${typeColor}">
+              <div class="develop-label__head" style="background:${sColor}">
                 <span class="develop-label__type">${escapeHtml(type?.short ?? '')}</span>${escapeHtml(shortName(d.name))}
               </div>
               <div class="develop-label__stage" style="color:${sColor}">${escapeHtml(stageText)}</div>
