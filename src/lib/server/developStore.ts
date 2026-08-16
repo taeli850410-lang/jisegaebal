@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { RAW_STAGE_TO_CANONICAL } from '@/lib/taxonomy'
 
 /**
  * 서울 정비구역 저장소 (서버 전용)
@@ -26,19 +27,60 @@ export interface StoredDevelop {
   sigungu: string | null
   bbox: [number, number, number, number]
   geometry: Geometry
+
+  /* ── 정비몽땅 매칭으로 채워지는 항목 (미매칭 구역은 비어 있다) ── */
+  stage?: string
+  canonicalStage?: string | null
+  stageSiteName?: string
+  stageBizType?: string
+  stageMatchBy?: StageRecord['matchBy']
+  gu?: string
+}
+
+/** 정비몽땅에서 붙인 진행단계 (scripts/build-stages.mjs 산출물) */
+export interface StageRecord {
+  developId: string
+  siteName: string
+  gu: string
+  jibun: string
+  bizType: string
+  stage: string
+  opStage: string
+  /** point=폴리곤 포함, near=근접, name/name~=이름 매칭 — 신뢰도가 다르다 */
+  matchBy: 'point' | 'near' | 'name' | 'name~'
 }
 
 let cache: StoredDevelop[] | null = null
 
+function readJson<T>(...segments: string[]): T | null {
+  try {
+    return JSON.parse(readFileSync(join(process.cwd(), ...segments), 'utf-8')) as T
+  } catch {
+    return null
+  }
+}
+
 export function getAllDevelops(): StoredDevelop[] {
   if (cache) return cache
-  try {
-    const raw = readFileSync(join(process.cwd(), 'data', 'develops.seoul.json'), 'utf-8')
-    cache = JSON.parse(raw) as StoredDevelop[]
-  } catch {
-    // 변환 스크립트를 아직 돌리지 않은 경우
-    cache = []
-  }
+
+  const base = readJson<StoredDevelop[]>('data', 'develops.seoul.json') ?? []
+  const stages = readJson<StageRecord[]>('data', 'stages.seoul.json') ?? []
+  const byId = new Map(stages.map((s) => [s.developId, s]))
+
+  cache = base.map((d) => {
+    const s = byId.get(d.id)
+    return s
+      ? {
+          ...d,
+          stage: s.stage,
+          canonicalStage: RAW_STAGE_TO_CANONICAL[s.stage] ?? null,
+          stageSiteName: s.siteName,
+          stageBizType: s.bizType,
+          stageMatchBy: s.matchBy,
+          gu: s.gu,
+        }
+      : d
+  })
   return cache
 }
 
@@ -104,16 +146,21 @@ export interface DevelopQuery {
   bbox: [number, number, number, number]
   level: number
   projectTypes?: string[]
+  stages?: string[]
   limit?: number
 }
 
-export function queryDevelops({ bbox, level, projectTypes, limit }: DevelopQuery) {
+export function queryDevelops({ bbox, level, projectTypes, stages, limit }: DevelopQuery) {
   const cap = limit ?? limitForLevel(level)
   const all = getAllDevelops()
   const typeFilter = projectTypes?.length ? new Set(projectTypes) : null
+  const stageFilter = stages?.length ? new Set(stages) : null
 
   let hits = all.filter(
-    (d) => intersects(d.bbox, bbox) && (!typeFilter || typeFilter.has(d.projectType)),
+    (d) =>
+      intersects(d.bbox, bbox) &&
+      (!typeFilter || typeFilter.has(d.projectType)) &&
+      (!stageFilter || (d.canonicalStage != null && stageFilter.has(d.canonicalStage))),
   )
 
   const total = hits.length
@@ -129,6 +176,7 @@ export function queryDevelops({ bbox, level, projectTypes, limit }: DevelopQuery
   return {
     total,
     truncated,
+    withStage: hits.filter((d) => d.stage).length,
     develops: hits.map((d) => ({
       id: d.id,
       name: d.name,
@@ -136,6 +184,12 @@ export function queryDevelops({ bbox, level, projectTypes, limit }: DevelopQuery
       rawLabel: d.rawLabel,
       areaM2: d.areaM2,
       noticeSn: d.noticeSn,
+      stage: d.stage ?? null,
+      canonicalStage: d.canonicalStage ?? null,
+      stageSiteName: d.stageSiteName ?? null,
+      stageBizType: d.stageBizType ?? null,
+      stageMatchBy: d.stageMatchBy ?? null,
+      gu: d.gu ?? null,
       bbox: d.bbox,
       geometry: simplifyGeometry(d.geometry, tol),
     })),

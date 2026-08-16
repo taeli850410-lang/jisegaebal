@@ -68,6 +68,34 @@ export const STAGES: Stage[] = [
 
 export const STAGE_MAP = new Map(STAGES.map((s) => [s.code, s]))
 
+/**
+ * 정비몽땅(cleanup.seoul.go.kr)의 원본 진행단계 → 우리 정규화 단계.
+ *
+ * 원본은 사업 유형·시행방식마다 라벨이 다르고 조합 운영 단계(해산·청산)까지 섞여 있다.
+ * 필터·집계는 정규화 단계로 하고, 화면에는 원본 라벨을 그대로 보여준다.
+ */
+export const RAW_STAGE_TO_CANONICAL: Record<string, string> = {
+  '정비계획 수립': 'prepare',
+  '추진위구성': 'prepare',
+  '안전진단': 'safety_check',
+  '정비구역지정': 'zone_designated',
+  '추진위원회승인': 'committee',
+  '조합원 모집신고': 'committee',
+  '조합규약작성': 'committee',
+  '조합창립총회': 'committee',
+  '조합설립인가': 'union',
+  '지구단위계획수립/건축심의/교통심의': 'union',
+  '사업시행인가': 'impl_approval',
+  '관리처분인가': 'mgmt_disposal',
+  '철거': 'construction',
+  '착공': 'construction',
+  '분양': 'construction',
+  '준공인가': 'completed',
+  '이전고시': 'completed',
+  '조합해산': 'completed',
+  '조합청산': 'completed',
+}
+
 /** 사업종류별 코호트 평균 단계 소요기간(개월) — "평균 15개월" 비교용 (현재는 예시값) */
 export const AVG_STAGE_MONTHS: Record<string, number> = {
   site_selected: 15,

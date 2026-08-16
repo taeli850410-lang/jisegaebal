@@ -10,6 +10,15 @@ export interface ApiDevelop {
   rawLabel: string
   areaM2: number
   noticeSn: string | null
+  /** 정비몽땅 원본 진행단계 라벨 (미매칭이면 null) */
+  stage: string | null
+  /** 12단계 정규화 코드 */
+  canonicalStage: string | null
+  stageSiteName: string | null
+  stageBizType: string | null
+  /** point=폴리곤 포함, near=근접, name/name~=이름 매칭 */
+  stageMatchBy: 'point' | 'near' | 'name' | 'name~' | null
+  gu: string | null
   bbox: [number, number, number, number]
   geometry: Geometry
 }
@@ -17,6 +26,7 @@ export interface ApiDevelop {
 export interface DevelopsResponse {
   total: number
   truncated: boolean
+  withStage: number
   develops: ApiDevelop[]
   _meta?: { source: string; license: string; grade: string; note: string }
 }

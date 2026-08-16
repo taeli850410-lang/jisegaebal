@@ -1,20 +1,30 @@
 'use client'
 
 import { useState } from 'react'
-import { PROJECT_TYPES, type ProjectTypeGroup } from '@/lib/taxonomy'
+import { PROJECT_TYPES, STAGES, type ProjectTypeGroup, type StageGroup } from '@/lib/taxonomy'
 
 interface Props {
   selectedTypes: Set<string>
+  selectedStages: Set<string>
   onToggleType: (code: string) => void
+  onToggleStage: (code: string) => void
   onReset: () => void
 }
+
+const STAGE_GROUPS: StageGroup[] = ['추진중', '진행중', '완료']
 
 const TYPE_GROUPS: ProjectTypeGroup[] = ['민간주도', '공공주도', '소규모', '기타']
 
 /** SHP에 실제로 존재하는 유형만 활성화한다 (나머지는 별도 소스 연동 필요) */
 const AVAILABLE = new Set(['redev', 'rebuild_apt', 'garo', 'small_rebuild'])
 
-export default function FilterBar({ selectedTypes, onToggleType, onReset }: Props) {
+export default function FilterBar({
+  selectedTypes,
+  selectedStages,
+  onToggleType,
+  onToggleStage,
+  onReset,
+}: Props) {
   const [open, setOpen] = useState<'type' | 'stage' | null>(null)
 
   return (
@@ -78,14 +88,45 @@ export default function FilterBar({ selectedTypes, onToggleType, onReset }: Prop
         )}
       </div>
 
-      {/* 진행단계는 별도 API(서울 열린데이터광장 정비사업 현황) 연동 후 활성화 */}
-      <button
-        disabled
-        title="진행단계 데이터 미연동 — 서울 열린데이터광장 인증키 필요"
-        className="h-9 cursor-not-allowed rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-300 shadow-sm"
-      >
-        진행단계 ▾
-      </button>
+      <div className="relative">
+        <button
+          onClick={() => setOpen(open === 'stage' ? null : 'stage')}
+          className={`h-9 rounded-lg border px-3 text-sm font-medium shadow-sm ${
+            selectedStages.size
+              ? 'border-indigo-600 bg-indigo-600 text-white'
+              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          {selectedStages.size === 0 ? '진행단계' : `진행단계 ${selectedStages.size}`} ▾
+        </button>
+        {open === 'stage' && (
+          <div className="absolute top-11 left-0 w-56 rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
+            {STAGE_GROUPS.map((g) => (
+              <div key={g} className="mb-3 last:mb-0">
+                <p className="mb-1.5 text-xs font-bold text-gray-400">{g}</p>
+                {STAGES.filter((s) => s.group === g).map((s) => (
+                  <label
+                    key={s.code}
+                    className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedStages.has(s.code)}
+                      onChange={() => onToggleStage(s.code)}
+                      className="h-4 w-4 accent-indigo-600"
+                    />
+                    <span className="text-sm text-gray-700">{s.label}</span>
+                  </label>
+                ))}
+              </div>
+            ))}
+            <p className="mt-1 border-t border-gray-100 pt-2 text-[11px] leading-relaxed text-gray-400">
+              진행단계는 정비몽땅 사업장을 대표지번 공간조인으로 연결한 값입니다. 단계가 확인되지
+              않은 구역은 필터에서 제외됩니다.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

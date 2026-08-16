@@ -165,13 +165,49 @@ while (true) {
   })
 }
 
+/**
+ * PRESENT_SN(도형번호)은 유일하지 않다. 하나의 구역이 여러 폴리곤 조각으로
+ * 나뉘어 별도 피처로 저장돼 있기 때문이다. 같은 번호끼리 MultiPolygon으로 합친다.
+ * (합치지 않으면 목록에 같은 구역이 중복으로 나오고, React key 충돌로 렌더가 깨진다)
+ */
+function mergeByPresentSn(list) {
+  const groups = new Map()
+  for (const d of list) {
+    const g = groups.get(d.id)
+    if (!g) {
+      groups.set(d.id, d)
+      continue
+    }
+    const toParts = (geom) =>
+      geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates
+    g.geometry = {
+      type: 'MultiPolygon',
+      coordinates: [...toParts(g.geometry), ...toParts(d.geometry)],
+    }
+    g.areaM2 += d.areaM2
+    g.bbox = [
+      Math.min(g.bbox[0], d.bbox[0]),
+      Math.min(g.bbox[1], d.bbox[1]),
+      Math.max(g.bbox[2], d.bbox[2]),
+      Math.max(g.bbox[3], d.bbox[3]),
+    ]
+  }
+  return [...groups.values()]
+}
+
+const beforeMerge = develops.length
+const mergedDevelops = mergeByPresentSn(develops)
+
 mkdirSync('data', { recursive: true })
-writeFileSync(OUT, JSON.stringify(develops))
+writeFileSync(OUT, JSON.stringify(mergedDevelops))
 
 const byType = new Map()
-for (const d of develops) byType.set(d.rawLabel, (byType.get(d.rawLabel) ?? 0) + 1)
+for (const d of mergedDevelops) byType.set(d.rawLabel, (byType.get(d.rawLabel) ?? 0) + 1)
 
-console.log(`전체 피처 ${total.toLocaleString()}개 중 정비구역 ${develops.length.toLocaleString()}개 추출`)
+console.log(`전체 피처 ${total.toLocaleString()}개 중 정비구역 ${beforeMerge.toLocaleString()}개 추출`)
+console.log(
+  `도형번호 병합: ${beforeMerge.toLocaleString()} → ${mergedDevelops.length.toLocaleString()}개 구역`,
+)
 console.log(`출력: ${OUT}`)
 console.log('\n--- 유형별 ---')
 for (const [k, v] of [...byType.entries()].sort((a, b) => b[1] - a[1])) {

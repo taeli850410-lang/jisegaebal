@@ -71,11 +71,13 @@ export default function Sidebar({
             지도를 이동하거나 축소해 보세요.
           </p>
         )}
-        {develops.map((d) => {
+        {develops.map((d, i) => {
           const type = PROJECT_TYPE_MAP.get(d.projectType)
           return (
             <button
-              key={d.id}
+              // id는 병합 후 유일하지만, 데이터 이상으로 중복이 생기면
+              // React 리스트 재조정이 깨져 옛 항목이 남는다. 인덱스를 덧붙여 방어한다.
+              key={`${d.id}-${i}`}
               onClick={() => onSelect(d)}
               className="mb-1.5 w-full rounded-xl border border-gray-100 px-3 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
             >
@@ -88,7 +90,16 @@ export default function Sidebar({
                 </span>
                 <span className="truncate text-sm font-bold">{d.name}</span>
               </div>
-              <p className="mt-1 text-xs text-gray-500">{d.rawLabel}</p>
+              <p className="mt-1 flex items-center gap-1.5 text-xs">
+                {d.stage ? (
+                  <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-semibold text-indigo-700">
+                    {d.stage}
+                  </span>
+                ) : (
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-400">단계 미확인</span>
+                )}
+                <span className="truncate text-gray-500">{d.rawLabel}</span>
+              </p>
               <p className="mt-1 text-xs text-gray-400">
                 면적 {d.areaM2.toLocaleString()}㎡
                 {d.areaM2 > 0 && ` (${Math.round(d.areaM2 / 3.3058).toLocaleString()}평)`}

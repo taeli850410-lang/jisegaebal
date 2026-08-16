@@ -35,6 +35,12 @@ export default function MapView() {
   })
   const drawingRef = useRef<any>(null)
   const fetchSeqRef = useRef(0)
+  /**
+   * 필터가 바뀌는 순간 지도 idle 이벤트가 함께 발생해 요청이 두 갈래로 나간다.
+   * 순번만 비교하면 "필터 이전 조건으로 나간 요청"이 늦게 도착해 최신 결과를 덮어쓴다.
+   * 그래서 요청에 사용한 필터 서명을 함께 들고 다니며 현재 서명과 일치할 때만 반영한다.
+   */
+  const filterSigRef = useRef('')
 
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -56,7 +62,9 @@ export default function MapView() {
   const [virtualZone, setVirtualZone] = useState<{ area: number; points: number } | null>(null)
   const [selected, setSelected] = useState<ApiDevelop | null>(null)
 
+  const [withStage, setWithStage] = useState(0)
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
+  const [selectedStages, setSelectedStages] = useState<Set<string>>(new Set())
   const [layers, setLayers] = useState<LayerState>({
     transactions: false,
     listings: false,
@@ -121,25 +129,34 @@ export default function MapView() {
     const ne = b.getNorthEast()
     const bbox = [sw.getLng(), sw.getLat(), ne.getLng(), ne.getLat()].join(',')
     const types = [...selectedTypes].join(',')
+    const stages = [...selectedStages].join(',')
+    const sig = `${types}|${stages}`
 
     const seq = ++fetchSeqRef.current
     setLoading(true)
     try {
       const res = await fetch(
-        `/api/develops?bbox=${bbox}&level=${map.getLevel()}${types ? `&types=${types}` : ''}`,
+        `/api/develops?bbox=${bbox}&level=${map.getLevel()}` +
+          `${types ? `&types=${types}` : ''}${stages ? `&stages=${stages}` : ''}`,
       )
       const data: DevelopsResponse = await res.json()
       // 늦게 도착한 이전 요청이 최신 결과를 덮어쓰지 않도록 한다
       if (seq !== fetchSeqRef.current) return
+      // 필터가 바뀐 뒤 도착한 구(舊) 조건 응답은 버린다
+      if (sig !== filterSigRef.current) return
       setDevelops(data.develops ?? [])
       setTotalInView(data.total ?? 0)
       setTruncated(!!data.truncated)
+      setWithStage(data.withStage ?? 0)
     } catch {
       /* 무시 */
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false)
     }
-  }, [selectedTypes])
+  }, [selectedTypes, selectedStages])
+
+  // 현재 필터 서명을 렌더 시점에 갱신해 둔다 (fetch 완료 시 대조용)
+  filterSigRef.current = `${[...selectedTypes].join(',')}|${[...selectedStages].join(',')}`
 
   useEffect(() => {
     if (!ready) return
@@ -199,7 +216,7 @@ export default function MapView() {
           clickable: false,
           content: `<div class="develop-label">
               <div class="develop-label__name" style="background:${color}">${d.name}</div><br/>
-              <div class="develop-label__stage">${d.rawLabel}</div>
+              <div class="develop-label__stage">${d.stage ?? d.rawLabel}</div>
             </div>`,
         })
         labelsRef.current.push(label)
@@ -397,13 +414,17 @@ export default function MapView() {
   }, [ready, tools.drawing])
 
   /* ─────────────── 핸들러 ─────────────── */
-  const toggleType = (code: string) =>
-    setSelectedTypes((prev) => {
-      const next = new Set(prev)
-      if (next.has(code)) next.delete(code)
-      else next.add(code)
-      return next
-    })
+  const makeToggle =
+    (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (code: string) =>
+      setter((prev) => {
+        const next = new Set(prev)
+        if (next.has(code)) next.delete(code)
+        else next.add(code)
+        return next
+      })
+
+  const toggleType = makeToggle(setSelectedTypes)
+  const toggleStage = makeToggle(setSelectedStages)
 
   /** 카카오 레벨 범위는 1(최대 확대)~14 */
   const zoomBy = (delta: number) => {
@@ -538,8 +559,13 @@ export default function MapView() {
 
         <FilterBar
           selectedTypes={selectedTypes}
+          selectedStages={selectedStages}
           onToggleType={toggleType}
-          onReset={() => setSelectedTypes(new Set())}
+          onToggleStage={toggleStage}
+          onReset={() => {
+            setSelectedTypes(new Set())
+            setSelectedStages(new Set())
+          }}
         />
 
         <LayerToggles layers={layers} onToggle={(k) => setLayers((p) => ({ ...p, [k]: !p[k] }))} />
@@ -550,7 +576,8 @@ export default function MapView() {
           <div className="rounded-lg border border-gray-200 bg-white/95 px-3 py-1.5 text-xs text-gray-600 shadow-sm">
             구역 <b className="text-gray-900">{totalInView.toLocaleString()}</b>개
             {truncated && <span className="text-amber-600"> (상위 {develops.length} 표시)</span>} ·
-            레벨 <b className="text-gray-900">{level}</b>
+            단계확인 <b className="text-gray-900">{withStage}</b> · 레벨{' '}
+            <b className="text-gray-900">{level}</b>
             {parcelCount > 0 && (
               <>
                 {' '}

@@ -24,20 +24,23 @@ export async function GET(request: Request) {
 
   const level = Number(searchParams.get('level') ?? 5)
   const types = searchParams.get('types')?.split(',').filter(Boolean)
+  const stages = searchParams.get('stages')?.split(',').filter(Boolean)
 
   const result = queryDevelops({
     bbox: parts as [number, number, number, number],
     level: Number.isNaN(level) ? 5 : level,
     projectTypes: types,
+    stages,
   })
 
   return NextResponse.json({
     ...result,
     _meta: {
-      source: '서울 열린데이터광장 · 서울시 의제처리구역 위치정보(UPIS_C_UQ181)',
+      source:
+        '경계: 서울 열린데이터광장 의제처리구역(UPIS_C_UQ181) / 진행단계: 서울시 정비사업 정보몽땅',
       license: '공공누리 1유형(출처표시)',
       grade: 'A',
-      note: '구역 경계는 참고자료이며 법적 효력이 없습니다.',
+      note: '구역 경계는 참고자료이며 법적 효력이 없습니다. 진행단계는 대표지번 공간조인으로 연결한 값입니다.',
     },
   })
 }
