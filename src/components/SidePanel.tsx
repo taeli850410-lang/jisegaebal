@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getFavorites, getViews, subscribeStore } from '@/lib/userStore'
 import ZoneDealCard, { type ZoneDeals } from './panels/ZoneDealCard'
+import Sparkline from './panels/Sparkline'
 import {
   Empty,
   PanelHint,
@@ -16,6 +17,27 @@ import {
 
 export type PanelKey = 'hot' | 'favorites' | 'new' | 'transactions' | 'listings' | 'auctions'
 export type { DevelopBrief }
+
+/** 상위 N개만 보여줄 때 나머지를 펼치는 버튼 */
+function MoreButton({
+  total,
+  shown,
+  onMore,
+}: {
+  total: number
+  shown: number
+  onMore: () => void
+}) {
+  if (total <= shown) return null
+  return (
+    <button
+      onClick={onMore}
+      className="mx-3 my-2 w-[calc(100%-1.5rem)] rounded-lg border border-gray-200 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50"
+    >
+      나머지 {total - shown}개 더보기
+    </button>
+  )
+}
 
 const TITLES: Record<PanelKey, string> = {
   hot: '인기 구역',
@@ -47,6 +69,12 @@ export default function SidePanel({
   /* 인기 */
   const [hotTab, setHotTab] = useState<'volume' | 'views' | 'price'>('views')
   const [hotDays, setHotDays] = useState<7 | 30 | 90>(30)
+
+  /** 순위 목록은 상위 10위까지만 보여주고 필요할 때 펼친다 */
+  const TOP_N = 10
+  const [expanded, setExpanded] = useState(false)
+  useEffect(() => setExpanded(false), [panel, hotTab, hotDays, gu])
+  const cut = <T,>(list: T[]) => (expanded ? list : list.slice(0, TOP_N))
 
   /* 관심 */
   const [favSort, setFavSort] = useState<'recent' | 'added' | 'name'>('added')
@@ -317,7 +345,7 @@ export default function SidePanel({
             {items.length === 0 && (
               <Empty text="아직 열어본 구역이 없습니다. 지도에서 구역을 눌러보세요." />
             )}
-            {items.map((d, i) => (
+            {cut(items).map((d, i) => (
               <RankRow
                 key={d.id}
                 rank={i + 1}
@@ -330,6 +358,7 @@ export default function SidePanel({
                 }
               />
             ))}
+            <MoreButton total={items.length} shown={cut(items).length} onMore={() => setExpanded(true)} />
           </>
         )}
 
@@ -340,11 +369,11 @@ export default function SidePanel({
             {gu && hotRanked.length === 0 && (
               <Empty text="선택 기간에 구역 안에서 신고된 거래가 없습니다." />
             )}
-            {hotRanked.map((z, i) => (
+            {cut(hotRanked).map((z, i) => (
               <button
                 key={z.id}
                 onClick={() => onFocus(z.bbox, z.id)}
-                className="flex w-full items-center gap-2.5 border-b border-gray-50 px-4 py-2.5 text-left hover:bg-gray-50"
+                className="flex w-full items-center gap-2 border-b border-gray-50 px-4 py-2.5 text-left hover:bg-gray-50"
               >
                 <span className="w-5 shrink-0 text-center text-xs font-bold text-gray-400">
                   {i + 1}
@@ -358,15 +387,35 @@ export default function SidePanel({
                     <StageBadge stage={z.stage} canonical={z.canonicalStage} />
                   </div>
                 </div>
-                <span className="shrink-0 text-sm font-bold text-indigo-600">
-                  {hotTab === 'volume'
-                    ? `${z.dealCount}건`
-                    : z.medianPerPyeong
-                      ? `${formatPerPyeong(z.medianPerPyeong)}/평`
-                      : '—'}
-                </span>
+
+                {/* 순위 숫자만으로는 흐름이 안 보여 6개월 추이를 함께 둔다 */}
+                <Sparkline series={z.series} width={56} height={24} />
+
+                <div className="w-16 shrink-0 text-right">
+                  <p className="text-sm font-bold text-indigo-600">
+                    {hotTab === 'volume'
+                      ? `${z.dealCount}건`
+                      : z.medianPerPyeong
+                        ? `${formatPerPyeong(z.medianPerPyeong)}/평`
+                        : '—'}
+                  </p>
+                  {z.changePct != null && z.changePct !== 0 && (
+                    <p
+                      className={`text-[10px] font-semibold ${
+                        z.changePct > 0 ? 'text-rose-500' : 'text-blue-500'
+                      }`}
+                    >
+                      {z.changePct > 0 ? '↑' : '↓'} {Math.abs(z.changePct)}%
+                    </p>
+                  )}
+                </div>
               </button>
             ))}
+            <MoreButton
+              total={hotRanked.length}
+              shown={cut(hotRanked).length}
+              onMore={() => setExpanded(true)}
+            />
           </>
         )}
 
@@ -407,7 +456,7 @@ export default function SidePanel({
             <button className="mx-3 mb-3 w-[calc(100%-1.5rem)] rounded-lg bg-indigo-600 py-2.5 text-sm font-bold text-white hover:bg-indigo-700">
               🔔 새로운 구역 알림받기
             </button>
-            {items.map((d, i) => (
+            {cut(items).map((d, i) => (
               <RankRow
                 key={d.id}
                 rank={i + 1}
@@ -422,6 +471,7 @@ export default function SidePanel({
                 }
               />
             ))}
+            <MoreButton total={items.length} shown={cut(items).length} onMore={() => setExpanded(true)} />
           </>
         )}
 
@@ -432,9 +482,14 @@ export default function SidePanel({
             {gu && zoneDeals.length === 0 && (
               <Empty text="선택 기간에 구역 안에서 신고된 거래가 없습니다.\n기간을 넓혀보세요." />
             )}
-            {zoneDeals.map((z) => (
+            {cut(zoneDeals).map((z) => (
               <ZoneDealCard key={z.id} zone={z} onOpen={onFocus} />
             ))}
+            <MoreButton
+              total={zoneDeals.length}
+              shown={cut(zoneDeals).length}
+              onMore={() => setExpanded(true)}
+            />
             {gu && zdMeta && (
               <p className="px-4 py-3 text-[11px] leading-relaxed text-gray-400">
                 {gu}에서 최근 6개월 {zdMeta.fetched.toLocaleString()}건을 조회해 구역 경계 안{' '}
