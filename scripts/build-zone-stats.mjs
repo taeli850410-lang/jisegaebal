@@ -211,6 +211,20 @@ function isAbutting(roadSideCodeNm) {
 }
 
 /* ── 건축물대장 표제부 (법정동 단위, 캐시) ──────────── */
+/**
+ * 대량 파일 색인이 있으면 API 대신 그걸 쓴다.
+ * (scripts/ingest-building-registry.mjs 로 만든다)
+ *
+ * API 는 numOfRows 100 상한 때문에 법정동 하나에 수십 페이지가 들고,
+ * 표제부에는 층별 정보가 없어 반지하를 낼 수 없다. 파일에는 둘 다 있다.
+ */
+const BUILDING_INDEX = existsSync('data/building-index.json')
+  ? JSON.parse(readFileSync('data/building-index.json', 'utf-8'))
+  : null
+if (BUILDING_INDEX) {
+  console.log(`건축물대장 색인 사용 — 지번 ${Object.keys(BUILDING_INDEX).length.toLocaleString()}개`)
+}
+
 const bldCache = new Map()
 async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
   const ck = `${op}|${ldCode}`
@@ -458,9 +472,46 @@ for (const [i, zone] of targets.entries()) {
   const ldCodes = [...new Set(parcels.map((p) => p.pnu.slice(0, 10)))]
   const buildingsByLd = new Map()
   const recapsByLd = new Map()
-  for (const ld of ldCodes) {
-    buildingsByLd.set(ld, await buildingsOf(ld))
-    recapsByLd.set(ld, await buildingsOf(ld, 'getBrRecapTitleInfo'))
+  let semiBasement = null
+
+  if (BUILDING_INDEX) {
+    // 색인은 지번 단위라 법정동 묶음을 만들 필요 없이 필지에서 바로 찾는다
+    semiBasement = 0
+    for (const ld of ldCodes) {
+      buildingsByLd.set(ld, [])
+      recapsByLd.set(ld, [])
+    }
+    for (const p of parcels) {
+      const ld = p.pnu.slice(0, 10)
+      const key = `${ld}|${p.pnu.slice(11, 15)}${p.pnu.slice(15, 19)}`
+      const e = BUILDING_INDEX[key]
+      if (!e) continue
+      const lot = { bun: p.pnu.slice(11, 15), ji: p.pnu.slice(15, 19) }
+      for (const b of e.buildings) {
+        buildingsByLd.get(ld).push({
+          ...lot,
+          mainPurpsCdNm: b.purpose,
+          hhldCnt: b.hhld,
+          fmlyCnt: b.fmly,
+          hoCnt: b.ho,
+          useAprDay: b.apr,
+          platArea: b.plat,
+          vlRat: b.far,
+          bcRat: b.bcr,
+          ugrndFlrCnt: b.ugrnd,
+          mgmBldrgstPk: b.pk,
+        })
+      }
+      if (e.recap) {
+        recapsByLd.get(ld).push({ ...lot, hhldCnt: e.recap.hhld, mainBldCnt: e.recap.main })
+      }
+      semiBasement += e.semiBasement ?? 0
+    }
+  } else {
+    for (const ld of ldCodes) {
+      buildingsByLd.set(ld, await buildingsOf(ld))
+      recapsByLd.set(ld, await buildingsOf(ld, 'getBrRecapTitleInfo'))
+    }
   }
 
   /*
@@ -484,6 +535,8 @@ for (const [i, zone] of targets.entries()) {
   }))
   s.legalDongs = ldCodes.length
   if (pnus.length < all.length) s.landCharSampled = pnus.length
+  // 반지하는 층별개요 파일이 있을 때만 낸다. 없으면 지하층 보유로 대체 표기한다.
+  if (semiBasement != null) s.conditions.semiBasement = semiBasement
   stats[zone.id] = s
   ok++
   console.log(
