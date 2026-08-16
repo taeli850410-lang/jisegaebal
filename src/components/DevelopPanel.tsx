@@ -137,6 +137,25 @@ interface ZoneStats {
   source: string
 }
 
+/** 정비몽땅 사업개요의 계획 표들 */
+interface ZonePlan {
+  siteName: string
+  supplySale: { total: number | null; byArea: { label: string; households: number }[] } | null
+  supplyRent: { total: number | null; byArea: { label: string; households: number }[] } | null
+  maxHeightM: number | null
+  floors: string | null
+  mainUse: string | null
+  facilities: { label: string; areaM2: number }[]
+  improvement: {
+    total: number | null
+    keep: number | null
+    repair: number | null
+    rebuild: number | null
+  } | null
+  schedule: string | null
+  office: { address: string | null; phone: string | null } | null
+}
+
 interface FullData {
   zone: ApiDevelop & {
     dong: string | null
@@ -144,6 +163,7 @@ interface FullData {
     summary: ZoneSummary | null
     progress: ZoneProgress | null
     stats: ZoneStats | null
+    plan: ZonePlan | null
   }
   deals: Deal[]
   dealCount: number
@@ -455,6 +475,7 @@ export default function DevelopPanel({
   const sum = data?.zone.summary ?? null
   const prog = data?.zone.progress ?? null
   const stats = data?.zone.stats ?? null
+  const plan = data?.zone.plan ?? null
 
   /** 현재 단계에 머문 개월 수 — 해당 단계 인가일이 있을 때만 계산한다 */
   const currentSince = canonical ? prog?.dates[canonical.code]?.date : null
@@ -1023,6 +1044,177 @@ export default function DevelopPanel({
                 </>
               )}
 
+              {/* ── 공급 계획 (정비몽땅 사업개요) ── */}
+              {plan && (plan.supplySale?.total || plan.supplyRent?.total) && (
+                <>
+                  <h3 className="mt-6 mb-2 text-sm font-bold">
+                    공급 계획
+                    <Grade grade="A" />
+                  </h3>
+                  {(() => {
+                    const sale = plan.supplySale?.total ?? 0
+                    const rent = plan.supplyRent?.total ?? 0
+                    const total = sale + rent
+                    return (
+                      <StatRows
+                        rows={[
+                          { k: '공급 세대', v: `${total.toLocaleString()}세대` },
+                          ...(sale
+                            ? [
+                                {
+                                  k: '분양',
+                                  v: `${sale.toLocaleString()}세대`,
+                                  sub: pct(sale, total),
+                                },
+                              ]
+                            : []),
+                          ...(rent
+                            ? [
+                                {
+                                  k: '임대',
+                                  v: `${rent.toLocaleString()}세대`,
+                                  sub: pct(rent, total),
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                    )
+                  })()}
+
+                  {/* 전용면적 구간별 — 분양·임대를 한 표에 나란히 */}
+                  {(() => {
+                    const labels = [
+                      ...new Set([
+                        ...(plan.supplySale?.byArea ?? []).map((a) => a.label),
+                        ...(plan.supplyRent?.byArea ?? []).map((a) => a.label),
+                      ]),
+                    ]
+                    if (!labels.length) return null
+                    const at = (
+                      side: { byArea: { label: string; households: number }[] } | null,
+                      label: string,
+                    ) => side?.byArea.find((a) => a.label === label)?.households ?? null
+                    return (
+                      <table className="mt-2 w-full text-[11px]">
+                        <thead>
+                          <tr className="border-y border-gray-100 text-gray-400">
+                            <th className="py-1.5 text-left font-medium">전용면적</th>
+                            <th className="py-1.5 text-right font-medium">분양</th>
+                            <th className="py-1.5 text-right font-medium">임대</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {labels.map((l) => (
+                            <tr key={l} className="border-b border-gray-50 last:border-0">
+                              <td className="py-1.5 text-gray-600">{l}</td>
+                              <td className="py-1.5 text-right font-semibold">
+                                {at(plan.supplySale, l)?.toLocaleString() ?? '—'}
+                              </td>
+                              <td className="py-1.5 text-right text-gray-500">
+                                {at(plan.supplyRent, l)?.toLocaleString() ?? '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )
+                  })()}
+
+                  {(plan.floors || plan.maxHeightM || plan.improvement?.total) && (
+                    <>
+                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                        건축 계획
+                        <Grade grade="A" />
+                      </h3>
+                      <StatRows
+                        rows={[
+                          ...(sum?.far != null ? [{ k: '용적률', v: `${sum.far}%` }] : []),
+                          ...(sum?.bcr != null ? [{ k: '건폐율', v: `${sum.bcr}%` }] : []),
+                          ...(plan.floors ? [{ k: '층수', v: plan.floors }] : []),
+                          ...(plan.maxHeightM
+                            ? [{ k: '최고높이', v: `${plan.maxHeightM}m` }]
+                            : []),
+                          ...(plan.mainUse ? [{ k: '주용도', v: plan.mainUse }] : []),
+                          ...(plan.improvement?.rebuild
+                            ? [
+                                {
+                                  k: '철거 후 신축',
+                                  v: `${plan.improvement.rebuild.toLocaleString()}동`,
+                                  sub: plan.improvement.total
+                                    ? `(전체 ${plan.improvement.total.toLocaleString()}동)`
+                                    : null,
+                                },
+                              ]
+                            : []),
+                          ...(plan.schedule ? [{ k: '시행 예정시기', v: plan.schedule }] : []),
+                        ]}
+                      />
+                    </>
+                  )}
+
+                  {plan.facilities.length > 0 && (
+                    <>
+                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                        공동이용 시설
+                        <Grade grade="A" />
+                      </h3>
+                      <div className="flex flex-wrap gap-1">
+                        {plan.facilities.map((f) => (
+                          <span
+                            key={f.label}
+                            className="rounded bg-gray-100 px-1.5 py-1 text-[11px] text-gray-600"
+                          >
+                            {f.label}{' '}
+                            <b className="font-semibold text-gray-800">
+                              {f.areaM2.toLocaleString()}㎡
+                            </b>
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {plan.office && (plan.office.address || plan.office.phone) && (
+                    <>
+                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                        추진 주체
+                        <Grade grade="A" />
+                      </h3>
+                      <dl className="divide-y divide-gray-100 text-[13px]">
+                        <div className="flex items-start justify-between gap-3 py-2">
+                          <dt className="shrink-0 text-gray-500">사업장</dt>
+                          <dd className="text-right font-semibold break-keep">{plan.siteName}</dd>
+                        </div>
+                        {plan.office.address && (
+                          <div className="flex items-start justify-between gap-3 py-2">
+                            <dt className="shrink-0 text-gray-500">주소</dt>
+                            <dd className="text-right break-keep">{plan.office.address}</dd>
+                          </div>
+                        )}
+                        {plan.office.phone && (
+                          <div className="flex items-center justify-between gap-3 py-2">
+                            <dt className="shrink-0 text-gray-500">전화</dt>
+                            <dd>
+                              <a
+                                href={`tel:${plan.office.phone}`}
+                                className="font-semibold text-indigo-600 hover:underline"
+                              >
+                                {plan.office.phone}
+                              </a>
+                            </dd>
+                          </div>
+                        )}
+                      </dl>
+                    </>
+                  )}
+
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    출처: 서울시 정비사업 정보몽땅 사업개요 · 사업장 「{plan.siteName}」
+                  </p>
+                </>
+              )}
+
               {/* ── 세대 현황 · 노후도 · 개발 여건 · 유형별 토지 면적 ── */}
               {stats && (
                 <>
@@ -1259,11 +1451,11 @@ export default function DevelopPanel({
                 {[
                   // 사업개요가 없어도 현황 제원(건축물대장)으로 밀도는 알 수 있다.
                   // 계획값이 비었다는 사실만 남긴다.
-                  ...(sum
+                  ...(plan?.supplySale?.total
                     ? []
                     : [
                         [
-                          '계획 제원 (공급세대·계획 용적률)',
+                          '공급 계획 (분양·임대 세대)',
                           stats?.actual?.far
                             ? '정비몽땅 사업개요 미등록 — 위 현황 제원으로 대체'
                             : '정비몽땅 사업개요 미등록',

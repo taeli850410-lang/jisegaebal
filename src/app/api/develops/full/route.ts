@@ -251,6 +251,8 @@ export async function GET(request: Request) {
       progress: zone.progress ?? null,
       // 연속지적도 + 건축물대장 산출 (아직 계산 안 된 구역은 null)
       stats: zone.stats ?? null,
+      // 정비몽땅 사업개요의 공급계획·공동이용시설·추진주체
+      plan: zone.plan ?? null,
     },
     deals: deals.slice(0, 60),
     dealCount: deals.length,

@@ -18,13 +18,13 @@ const nextConfig: NextConfig = {
     '/api/zone-transactions': [
       './data/develops.seoul.json',
       './data/stages.seoul.json',
-      './data/zone-summary.json', './data/zone-progress.json',
+      './data/zone-summary.json', './data/zone-progress.json', './data/zone-plan.json',
       './data/jibun-cache.json',
     ],
     '/api/develops/full': [
       './data/develops.seoul.json',
       './data/stages.seoul.json',
-      './data/zone-summary.json', './data/zone-progress.json',
+      './data/zone-summary.json', './data/zone-progress.json', './data/zone-plan.json',
       './data/jibun-cache.json',
       './data/apt-info-cache.json',
       './data/zone-stats.json',
@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
     '/api/search': [
       './data/develops.seoul.json',
       './data/stages.seoul.json',
-      './data/zone-summary.json', './data/zone-progress.json',
+      './data/zone-summary.json', './data/zone-progress.json', './data/zone-plan.json',
     ],
   },
 }
