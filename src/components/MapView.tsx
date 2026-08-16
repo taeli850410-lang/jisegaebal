@@ -41,6 +41,7 @@ export default function MapView() {
     code: string
     origin: string
     message: string
+    misregistered?: string[]
   } | null>(null)
   const [level, setLevel] = useState(INITIAL_LEVEL)
   const [parcelCount, setParcelCount] = useState(0)
@@ -426,6 +427,29 @@ export default function MapView() {
                   <pre className="mt-3 overflow-x-auto rounded-lg bg-gray-900 px-3 py-2 text-[11px] leading-relaxed text-red-300">
                     {diag.message}
                   </pre>
+
+                  {!!diag.misregistered?.length && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                      <p className="text-sm font-bold text-amber-900">
+                        ⚠️ 다른 도메인이 등록되어 있습니다
+                      </p>
+                      <ul className="mt-1.5 space-y-1">
+                        {diag.misregistered.map((d) => (
+                          <li key={d} className="font-mono text-[12px] text-amber-900/80">
+                            ✅ {d} <span className="font-sans">— 등록됨</span>
+                          </li>
+                        ))}
+                        <li className="font-mono text-[12px] text-red-700">
+                          ❌ {diag.origin} <span className="font-sans">— 미등록</span>
+                        </li>
+                      </ul>
+                      <p className="mt-2 text-[12px] leading-relaxed text-amber-900/80">
+                        카카오 Web 플랫폼 도메인은 <b>소스코드 보관처</b>가 아니라{' '}
+                        <b>앱이 브라우저에서 실제로 열리는 주소</b>를 적는 칸입니다. github.com을
+                        등록해도 효과가 없습니다.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
                     <p className="text-sm font-bold text-indigo-900">해결 방법 (2분)</p>
