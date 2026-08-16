@@ -113,6 +113,8 @@ interface Apartment {
   buildYear: number | null
   ageYears: number | null
   distanceKm: number
+  households: number | null
+  buildings: number | null
   areas: { pyeong: number; exclusiveAr: number; price: number; dealDate: string }[]
 }
 
@@ -591,7 +593,6 @@ export default function DevelopPanel({
                   ...(prog ? [] : [['단계별 인가일', '정비몽땅 추진경과 미등록'] as const]),
                   ['권리산정기준일', '고시문 파싱'],
                   ['노후도 · 개발여건', '건축물대장 + 연속지적도(V-World)'],
-                  ['아파트 세대수 · 동수', 'K-apt (서비스 활용신청 필요)'],
                   ['매물 · 경매', '중개 제휴 / 법원경매'],
                 ].map(([k, src]) => (
                   <li
@@ -682,6 +683,7 @@ export default function DevelopPanel({
                     <tr className="border-b border-gray-100 text-gray-400">
                       <th className="py-1.5 text-left font-medium">이름</th>
                       <th className="py-1.5 text-right font-medium">연차</th>
+                      <th className="py-1.5 text-right font-medium">세대수</th>
                       <th className="py-1.5 text-right font-medium">전용</th>
                       <th className="py-1.5 text-right font-medium">가격</th>
                     </tr>
@@ -698,6 +700,20 @@ export default function DevelopPanel({
                               </td>
                               <td rowSpan={a.areas.length} className="py-2 text-right align-top text-gray-500">
                                 {a.ageYears != null ? `${a.ageYears}년` : '—'}
+                              </td>
+                              <td rowSpan={a.areas.length} className="py-2 text-right align-top text-gray-500">
+                                {a.households != null ? (
+                                  <>
+                                    <div>{a.households.toLocaleString()}</div>
+                                    {a.buildings != null && (
+                                      <div className="text-[10px] text-gray-400">
+                                        {a.buildings}개동
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  '—'
+                                )}
                               </td>
                             </>
                           )}

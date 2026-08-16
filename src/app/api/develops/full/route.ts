@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAllDevelops, type StoredDevelop } from '@/lib/server/developStore'
 import { fetchTransactions, median, type Transaction } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
+import { getAptInfo } from '@/lib/server/aptInfo'
 import { outerRings } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
@@ -98,6 +99,8 @@ export async function GET(request: Request) {
     buildYear: number | null
     ageYears: number | null
     distanceKm: number
+    households: number | null
+    buildings: number | null
     areas: { pyeong: number; exclusiveAr: number; price: number; dealDate: string }[]
   }[] = []
 
@@ -120,9 +123,19 @@ export async function GET(request: Request) {
     }
 
     const thisYear = new Date().getFullYear()
-    for (const [name, { deals: ds, km }] of [...byApt.entries()]
-      .sort((a, b) => a[1].km - b[1].km)
-      .slice(0, 6)) {
+    const picked = [...byApt.entries()].sort((a, b) => a[1].km - b[1].km).slice(0, 6)
+
+    // 세대수·동수는 건축물대장 총괄표제부에서 가져온다 (K-apt 미등록 대체 경로)
+    const infos = await Promise.all(
+      picked.map(([, { deals: ds }]) => {
+        const d = ds[0]
+        return getAptInfo(zone.gu!, d.dong, d.jibun).catch(() => null)
+      }),
+    )
+
+    for (let idx = 0; idx < picked.length; idx++) {
+      const [name, { deals: ds, km }] = picked[idx]
+      const info = infos[idx]
       // 전용면적대별 최근 거래 1건씩
       const byArea = new Map<number, (typeof ds)[number]>()
       for (const d of ds) {
@@ -131,12 +144,17 @@ export async function GET(request: Request) {
         const prev = byArea.get(key)
         if (!prev || d.dealDate > prev.dealDate) byArea.set(key, d)
       }
-      const buildYear = ds.find((d) => d.buildYear)?.buildYear ?? null
+      // 사용승인일이 있으면 그쪽이 정확하다 (실거래 buildYear 는 연도만 준다)
+      const approvalYear = info?.useApprovalDate ? Number(info.useApprovalDate.slice(0, 4)) : null
+      const buildYear = approvalYear ?? ds.find((d) => d.buildYear)?.buildYear ?? null
+
       apartments.push({
         name,
         buildYear,
         ageYears: buildYear ? thisYear - buildYear : null,
         distanceKm: Math.round(km * 10) / 10,
+        households: info?.households ?? null,
+        buildings: info?.buildings ?? null,
         areas: [...byArea.entries()]
           .sort((a, b) => a[0] - b[0])
           .slice(0, 3)

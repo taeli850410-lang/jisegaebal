@@ -25,6 +25,7 @@ const nextConfig: NextConfig = {
       './data/stages.seoul.json',
       './data/zone-summary.json', './data/zone-progress.json',
       './data/jibun-cache.json',
+      './data/apt-info-cache.json',
     ],
     '/api/search': [
       './data/develops.seoul.json',
