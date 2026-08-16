@@ -8,7 +8,7 @@
  */
 import * as shapefile from 'shapefile'
 import proj4 from 'proj4'
-import { writeFileSync, mkdirSync } from 'node:fs'
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
 
 const BASE = 'data/raw/uq181/shp파일/UPIS_C_UQ181'
 // 서버가 런타임에 fs로 읽는다 (번들에 5MB를 밀어넣지 않기 위해)
@@ -205,6 +205,29 @@ function mergeByPresentSn(list) {
 const beforeMerge = develops.length
 const mergedDevelops = mergeByPresentSn(develops)
 
+/**
+ * enrich-develops.mjs 가 채운 자치구·중심좌표·고시일을 보존한다.
+ * 이 스크립트를 다시 돌리면 파일을 통째로 덮어쓰므로, 그냥 쓰면 보강분이 날아가고
+ * 지역 필터·지역별 실거래가 조용히 빈 결과를 내게 된다(실제로 겪은 사고).
+ */
+let preserved = 0
+if (existsSync(OUT)) {
+  try {
+    const prev = new Map(
+      JSON.parse(readFileSync(OUT, 'utf-8')).map((d) => [d.id, d]),
+    )
+    for (const d of mergedDevelops) {
+      const p = prev.get(d.id)
+      if (!p) continue
+      if (p.gu) { d.gu = p.gu; d.dong = p.dong; preserved++ }
+      if (p.center) d.center = p.center
+      if (p.noticeDate) d.noticeDate = p.noticeDate
+    }
+  } catch {
+    /* 기존 파일이 깨져 있으면 그냥 새로 쓴다 */
+  }
+}
+
 mkdirSync('data', { recursive: true })
 writeFileSync(OUT, JSON.stringify(mergedDevelops))
 
@@ -215,6 +238,7 @@ console.log(`전체 피처 ${total.toLocaleString()}개 중 정비구역 ${befor
 console.log(
   `도형번호 병합: ${beforeMerge.toLocaleString()} → ${mergedDevelops.length.toLocaleString()}개 구역`,
 )
+if (preserved) console.log(`기존 보강분(자치구·좌표·고시일) ${preserved.toLocaleString()}건 보존`)
 console.log(`출력: ${OUT}`)
 console.log('\n--- 유형별 ---')
 for (const [k, v] of [...byType.entries()].sort((a, b) => b[1] - a[1])) {
