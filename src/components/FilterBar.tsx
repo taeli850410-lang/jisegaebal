@@ -1,136 +1,285 @@
 'use client'
 
 import { useState } from 'react'
-import { PROJECT_TYPES, STAGES, type ProjectTypeGroup, type StageGroup } from '@/lib/taxonomy'
+import {
+  PROJECT_TYPES,
+  STAGES,
+  type ProjectTypeGroup,
+  type StageGroup,
+} from '@/lib/taxonomy'
+import { CheckRow, FilterDropdown, Pill } from './filters/FilterShell'
+import DualRange from './filters/DualRange'
 
 interface Props {
   selectedTypes: Set<string>
   selectedStages: Set<string>
   onToggleType: (code: string) => void
   onToggleStage: (code: string) => void
+  onSetTypes: (codes: string[]) => void
+  onSetStages: (codes: string[]) => void
   onReset: () => void
 }
 
+const TYPE_GROUPS: ProjectTypeGroup[] = ['민간주도', '공공주도', '소규모', '기타']
 const STAGE_GROUPS: StageGroup[] = ['추진중', '진행중', '완료']
 
-const TYPE_GROUPS: ProjectTypeGroup[] = ['민간주도', '공공주도', '소규모', '기타']
+/** SHP 경계 데이터에 실제로 존재하는 유형 (나머지는 별도 소스 연동 필요) */
+const AVAILABLE_TYPES = new Set(['redev', 'rebuild_apt', 'garo', 'small_rebuild'])
 
-/** SHP에 실제로 존재하는 유형만 활성화한다 (나머지는 별도 소스 연동 필요) */
-const AVAILABLE = new Set(['redev', 'rebuild_apt', 'garo', 'small_rebuild'])
+const EOK = 100_000_000
+
+function formatEok(n: number) {
+  return n === 0 ? '0' : `${n}억`
+}
 
 export default function FilterBar({
   selectedTypes,
   selectedStages,
   onToggleType,
   onToggleStage,
+  onSetTypes,
+  onSetStages,
   onReset,
 }: Props) {
-  const [open, setOpen] = useState<'type' | 'stage' | null>(null)
+  const [open, setOpen] = useState<'type' | 'stage' | 'listing' | null>(null)
+
+  /* 매물 필터 — 매물 데이터 연동 전이라 값만 보관한다 */
+  const [unitKind, setUnitKind] = useState('all')
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 20])
+  const [officialRange, setOfficialRange] = useState<[number, number]>([0, 10])
+
+  const toggleGroup = (
+    codes: string[],
+    selected: Set<string>,
+    setAll: (c: string[]) => void,
+  ) => {
+    const allOn = codes.every((c) => selected.has(c))
+    const next = new Set(selected)
+    codes.forEach((c) => (allOn ? next.delete(c) : next.add(c)))
+    setAll([...next])
+  }
 
   return (
-    <div className="absolute top-3 left-3 z-20 flex items-start gap-2">
+    <div className="absolute top-3 left-3 z-30 flex items-start gap-2">
       <button
         onClick={onReset}
         title="필터 초기화"
-        className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 shadow-sm hover:bg-gray-50"
+        className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:bg-gray-50"
       >
         ↺
       </button>
 
-      <div className="relative">
-        <button
-          onClick={() => setOpen(open === 'type' ? null : 'type')}
-          className={`h-9 rounded-lg border px-3 text-sm font-medium shadow-sm ${
-            selectedTypes.size
-              ? 'border-indigo-600 bg-indigo-600 text-white'
-              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          {selectedTypes.size === 0 ? '사업종류' : `사업종류 ${selectedTypes.size}`} ▾
-        </button>
-        {open === 'type' && (
-          <div className="thin-scroll absolute top-11 left-0 max-h-[60vh] w-64 overflow-y-auto rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
-            {TYPE_GROUPS.map((g) => (
-              <div key={g} className="mb-3 last:mb-0">
-                <p className="mb-1.5 text-xs font-bold text-gray-400">{g}</p>
-                {PROJECT_TYPES.filter((t) => t.group === g).map((t) => {
-                  const enabled = AVAILABLE.has(t.code)
-                  return (
-                    <label
-                      key={t.code}
-                      title={enabled ? undefined : '이 유형은 아직 데이터가 연동되지 않았습니다'}
-                      className={`flex items-center gap-2 rounded px-1 py-1.5 ${
-                        enabled ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed opacity-40'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        disabled={!enabled}
-                        checked={selectedTypes.has(t.code)}
-                        onChange={() => onToggleType(t.code)}
-                        className="h-4 w-4 accent-indigo-600"
-                      />
-                      <span
-                        className="h-3 w-3 shrink-0 rounded-sm"
-                        style={{ background: t.color }}
-                      />
-                      <span className="text-sm text-gray-700">{t.label}</span>
-                    </label>
-                  )
-                })}
-              </div>
-            ))}
-            <p className="mt-1 border-t border-gray-100 pt-2 text-[11px] leading-relaxed text-gray-400">
-              흐린 항목은 서울시 의제처리구역 SHP에 포함되지 않는 유형입니다. 신통기획·모아타운 등은
-              별도 소스 연동이 필요합니다.
-            </p>
-          </div>
-        )}
-      </div>
+      {/* ── 사업종류 ── */}
+      <FilterDropdown
+        label={selectedTypes.size ? `사업종류 ${selectedTypes.size}` : '사업종류'}
+        active={selectedTypes.size > 0}
+        open={open === 'type'}
+        onToggle={() => setOpen(open === 'type' ? null : 'type')}
+        onClose={() => setOpen(null)}
+      >
+        <div className="border-b border-gray-100 pb-2">
+          <CheckRow
+            emphasis
+            checked={selectedTypes.size === 0}
+            label="전체"
+            onChange={() => onSetTypes([])}
+          />
+        </div>
 
-      <div className="relative">
-        <button
-          onClick={() => setOpen(open === 'stage' ? null : 'stage')}
-          className={`h-9 rounded-lg border px-3 text-sm font-medium shadow-sm ${
-            selectedStages.size
-              ? 'border-indigo-600 bg-indigo-600 text-white'
-              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          {selectedStages.size === 0 ? '진행단계' : `진행단계 ${selectedStages.size}`} ▾
-        </button>
-        {open === 'stage' && (
-          <div className="absolute top-11 left-0 w-56 rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
-            {STAGE_GROUPS.map((g) => (
-              <div key={g} className="mb-3 last:mb-0">
-                <p className="mb-1.5 text-xs font-bold text-gray-400">{g}</p>
-                {STAGES.filter((s) => s.group === g).map((s) => (
-                  <label
-                    key={s.code}
-                    className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 hover:bg-gray-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedStages.has(s.code)}
-                      onChange={() => onToggleStage(s.code)}
-                      className="h-4 w-4 accent-indigo-600"
-                    />
-                    <span
-                      className="h-3 w-3 shrink-0 rounded-sm"
-                      style={{ background: s.color }}
-                    />
-                    <span className="text-sm text-gray-700">{s.label}</span>
-                  </label>
+        {TYPE_GROUPS.map((g) => {
+          const items = PROJECT_TYPES.filter((t) => t.group === g)
+          const codes = items.map((t) => t.code)
+          return (
+            <div key={g} className="mt-3">
+              <CheckRow
+                checked={codes.every((c) => selectedTypes.has(c))}
+                label={g}
+                onChange={() => toggleGroup(codes, selectedTypes, onSetTypes)}
+              />
+              <div className="mt-1.5 flex flex-wrap gap-2 pl-1">
+                {items.map((t) => (
+                  <Pill
+                    key={t.code}
+                    dot
+                    color={t.color}
+                    label={t.label}
+                    selected={selectedTypes.has(t.code)}
+                    onClick={() => onToggleType(t.code)}
+                  />
                 ))}
               </div>
-            ))}
-            <p className="mt-1 border-t border-gray-100 pt-2 text-[11px] leading-relaxed text-gray-400">
-              진행단계는 정비몽땅 사업장을 대표지번 공간조인으로 연결한 값입니다. 단계가 확인되지
-              않은 구역은 필터에서 제외됩니다.
-            </p>
-          </div>
-        )}
-      </div>
+            </div>
+          )
+        })}
+
+        <p className="mt-4 border-t border-gray-100 pt-2.5 text-[11px] leading-relaxed text-gray-400">
+          경계 데이터에 포함된 유형은{' '}
+          {PROJECT_TYPES.filter((t) => AVAILABLE_TYPES.has(t.code))
+            .map((t) => t.label)
+            .join(' · ')}{' '}
+          입니다. 나머지는 별도 소스 연동 후 표시됩니다.
+        </p>
+      </FilterDropdown>
+
+      {/* ── 진행단계 ── */}
+      <FilterDropdown
+        label={selectedStages.size ? `진행단계 ${selectedStages.size}` : '진행단계'}
+        active={selectedStages.size > 0}
+        open={open === 'stage'}
+        onToggle={() => setOpen(open === 'stage' ? null : 'stage')}
+        onClose={() => setOpen(null)}
+        width="w-[400px]"
+      >
+        <div className="border-b border-gray-100 pb-2">
+          <CheckRow
+            emphasis
+            checked={selectedStages.size === 0}
+            label="전체"
+            onChange={() => onSetStages([])}
+          />
+        </div>
+
+        {STAGE_GROUPS.map((g) => {
+          const items = STAGES.filter((s) => s.group === g)
+          const codes = items.map((s) => s.code)
+          return (
+            <div key={g} className="mt-3">
+              <CheckRow
+                checked={codes.every((c) => selectedStages.has(c))}
+                label={g}
+                onChange={() => toggleGroup(codes, selectedStages, onSetStages)}
+              />
+              <div className="mt-1.5 flex flex-wrap gap-2 pl-1">
+                {items.map((s) => (
+                  <Pill
+                    key={s.code}
+                    label={s.label}
+                    color={s.color}
+                    selected={selectedStages.has(s.code)}
+                    onClick={() => onToggleStage(s.code)}
+                  />
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </FilterDropdown>
+
+      {/* ── 매물 ── */}
+      <FilterDropdown
+        label="매물"
+        active={false}
+        open={open === 'listing'}
+        onToggle={() => setOpen(open === 'listing' ? null : 'listing')}
+        onClose={() => setOpen(null)}
+        width="w-[440px]"
+      >
+        <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+          ⚠️ 매물 데이터는 아직 연동되지 않았습니다. 조건은 저장되지만 지도에 반영되지 않습니다.
+        </div>
+
+        <p className="text-sm font-bold text-gray-800">유형</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {[
+            { key: 'all', label: '전체', color: undefined as string | undefined, dot: false },
+            { key: 'multi', label: '공동주택', color: '#4F46E5', dot: true },
+            { key: 'single', label: '단독주택', color: '#10B981', dot: true },
+            { key: 'etc', label: '기타', color: '#6B7280', dot: true },
+          ].map((o) => (
+            <Pill
+              key={o.key}
+              label={o.label}
+              dot={o.dot}
+              color={o.color}
+              selected={unitKind === o.key}
+              onClick={() => setUnitKind(o.key)}
+            />
+          ))}
+        </div>
+
+        <div className="mt-5 flex items-center justify-between">
+          <p className="text-sm font-bold text-gray-800">매매가</p>
+          <button
+            onClick={() => setPriceRange([0, 20])}
+            className="text-xs font-bold text-indigo-600"
+          >
+            전체
+          </button>
+        </div>
+        <div className="mt-2">
+          <DualRange
+            min={0}
+            max={20}
+            step={1}
+            value={priceRange}
+            onChange={setPriceRange}
+            ticks={[0, 5, 10, 15, 20]}
+            format={formatEok}
+          />
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {[
+            ['전체', 0, 20],
+            ['~ 1억', 0, 1],
+            ['~ 3억', 0, 3],
+            ['~ 4억', 0, 4],
+            ['~ 5억', 0, 5],
+            ['5 ~ 10억', 5, 10],
+            ['10 ~ 15억', 10, 15],
+            ['15 ~ 20억', 15, 20],
+            ['20억 ~', 20, 20],
+          ].map(([label, lo, hi]) => (
+            <Pill
+              key={label as string}
+              label={label as string}
+              selected={priceRange[0] === lo && priceRange[1] === hi}
+              onClick={() => setPriceRange([lo as number, hi as number])}
+            />
+          ))}
+        </div>
+
+        <div className="mt-5 flex items-center justify-between">
+          <p className="flex items-center gap-1 text-sm font-bold text-gray-800">
+            공시가 <span title="프리미엄 기능">👑</span>
+          </p>
+          <button
+            onClick={() => setOfficialRange([0, 10])}
+            className="text-xs font-bold text-indigo-600"
+          >
+            전체
+          </button>
+        </div>
+        <div className="mt-2">
+          <DualRange
+            min={0}
+            max={10}
+            step={1}
+            value={officialRange}
+            onChange={setOfficialRange}
+            ticks={[0, 2, 5, 10]}
+            format={formatEok}
+          />
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {[
+            ['전체', 0, 10],
+            ['~ 1억', 0, 1],
+            ['1 ~ 2억', 1, 2],
+            ['2 ~ 3억', 2, 3],
+            ['3 ~ 4억', 3, 4],
+            ['4 ~ 5억', 4, 5],
+            ['5 ~ 10억', 5, 10],
+            ['10억 ~', 10, 10],
+          ].map(([label, lo, hi]) => (
+            <Pill
+              key={label as string}
+              label={label as string}
+              selected={officialRange[0] === lo && officialRange[1] === hi}
+              onClick={() => setOfficialRange([lo as number, hi as number])}
+            />
+          ))}
+        </div>
+      </FilterDropdown>
     </div>
   )
 }

@@ -717,6 +717,8 @@ export default function MapView() {
           selectedStages={selectedStages}
           onToggleType={toggleType}
           onToggleStage={toggleStage}
+          onSetTypes={(codes) => setSelectedTypes(new Set(codes))}
+          onSetStages={(codes) => setSelectedStages(new Set(codes))}
           onReset={() => {
             setSelectedTypes(new Set())
             setSelectedStages(new Set())

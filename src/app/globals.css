@@ -78,6 +78,39 @@ body {
   font-weight: 600;
 }
 
+/* ── 이중 범위 슬라이더 ──────────────────────────────
+   두 input을 겹쳐 쓰므로 트랙은 클릭을 통과시키고 손잡이만 잡히게 한다. */
+.dual-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+  margin: 0;
+}
+.dual-range:focus {
+  outline: none;
+}
+.dual-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  height: 18px;
+  width: 18px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 3px solid #6366f1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+}
+.dual-range::-moz-range-thumb {
+  pointer-events: auto;
+  height: 18px;
+  width: 18px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 3px solid #6366f1;
+  cursor: pointer;
+}
+
 .thin-scroll::-webkit-scrollbar {
   width: 6px;
 }
