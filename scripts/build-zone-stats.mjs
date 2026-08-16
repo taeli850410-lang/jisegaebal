@@ -297,10 +297,20 @@ const bldDisk = existsSync(BLD_CACHE_PATH)
 let bldDirty = 0
 function persistBld() {
   if (!bldDirty) return
-  mkdirSync('data', { recursive: true })
-  writeFileSync(BLD_CACHE_PATH, JSON.stringify(bldDisk))
-  bldDirty = 0
+  try {
+    mkdirSync('data', { recursive: true })
+    writeFileSync(BLD_CACHE_PATH, JSON.stringify(bldDisk))
+    bldDirty = 0
+  } catch (e) {
+    // 캐시는 있으면 좋은 것이지 없으면 안 되는 것이 아니다.
+    // 파일이 너무 커져 직렬화가 실패해도 배치를 죽이지 않는다.
+    console.warn(`  (캐시 저장 실패 — 메모리로만 계속합니다: ${e.message})`)
+    bldDirty = 0
+  }
 }
+
+/** data.go.kr 일일 한도에 걸리면 여기에 남는다 — 배치를 즉시 멈추기 위해 */
+let quotaExhausted = null
 
 const bldCache = new Map()
 async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
@@ -338,12 +348,36 @@ async function buildingsOf(ldCode, op = 'getBrTitleInfo') {
           await fetch(`https://apis.data.go.kr/1613000/BldRgstHubService/${op}?${qs}`)
         ).text()
         if (!t.trim() || !t.trimStart().startsWith('{')) continue
+        // 일일 한도를 넘으면 재시도해도 소용없다. 조용히 빈 결과로 흘려보내면
+        // 노후도 0/0 인 구역이 대량으로 저장돼 나중에 구분할 수 없다.
+        if (/LIMITED_NUMBER_OF_SERVICE_REQUESTS/.test(t)) {
+          quotaExhausted = op
+          return null
+        }
         const j = JSON.parse(t)
         if (j?.response?.header?.resultCode !== '00') continue
         const it = j.response.body?.items?.item
+        const arr = it ? (Array.isArray(it) ? it : [it]) : []
         return {
           total: num(j.response.body?.totalCount) || 0,
-          rows: it ? (Array.isArray(it) ? it : [it]) : [],
+          // 표제부는 한 건에 80개 필드가 온다. 그대로 캐시에 쌓으니 파일이
+          // JSON.stringify 한계(문자열 최대 길이)를 넘어 배치가 죽었다.
+          // 계산에 실제로 쓰는 것만 남긴다.
+          rows: arr.map((b) => ({
+            bun: b.bun,
+            ji: b.ji,
+            mainPurpsCdNm: b.mainPurpsCdNm,
+            hhldCnt: b.hhldCnt,
+            fmlyCnt: b.fmlyCnt,
+            useAprDay: b.useAprDay,
+            platArea: b.platArea,
+            vlRat: b.vlRat,
+            bcRat: b.bcRat,
+            ugrndFlrCnt: b.ugrndFlrCnt,
+            mainBldCnt: b.mainBldCnt,
+            mgmBldrgstPk: b.mgmBldrgstPk,
+            dongNm: b.dongNm,
+          })),
         }
       } catch {
         /* 재시도 */
@@ -632,6 +666,14 @@ for (const [i, zone] of targets.entries()) {
   // 규제는 구역 전체에 걸리므로 표본 8필지면 충분하다
   const regulations = pnus.length ? await landUse(pnus.slice(0, 8)) : []
   const owners = pnus.length ? await possession(pnus) : new Map()
+
+  // 표제부가 한도로 막혔으면 세대수만 있고 노후도·용적률이 빈 값이 된다.
+  // 그걸 저장하면 "확인된 건물 없음"으로 굳어져 나중에 진짜와 구분되지 않는다.
+  if (quotaExhausted) {
+    console.log(`\n일일 요청 한도 초과(${quotaExhausted}) — 여기서 멈춥니다.`)
+    console.log('내일 다시 돌리거나, 건축물대장 파일을 넣으면 한도 없이 진행됩니다.')
+    break
+  }
 
   const s = compute(zone, parcels, buildingsByLd, recapsByLd, landChars)
   if (regulations.length) {
