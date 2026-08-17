@@ -12,23 +12,31 @@ const ALL_GU = 'all'
 export type PanelKey = 'hot' | 'favorites' | 'new' | 'transactions' | 'listings' | 'auctions'
 export type { DevelopBrief }
 
-/** 상위 N개만 보여줄 때 나머지를 펼치는 버튼 */
+/**
+ * 더보기 버튼.
+ *
+ * 한 번에 전부 펼치면 수백 개가 쏟아져 스크롤이 무의미해진다.
+ * 누를 때마다 한 묶음씩 이어 붙여 계속 내려보게 한다.
+ */
 function MoreButton({
   total,
   shown,
+  step,
   onMore,
 }: {
   total: number
   shown: number
+  step: number
   onMore: () => void
 }) {
   if (total <= shown) return null
+  const next = Math.min(step, total - shown)
   return (
     <button
       onClick={onMore}
-      className="mx-3 my-2 w-[calc(100%-1.5rem)] rounded-lg border border-gray-200 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50"
+      className="mx-3 my-2 w-[calc(100%-1.5rem)] rounded-lg border border-gray-200 py-2.5 text-xs font-bold text-gray-500 hover:bg-gray-50"
     >
-      나머지 {total - shown}개 더보기
+      {next}개 더보기 <span className="font-normal text-gray-400">({shown}/{total})</span>
     </button>
   )
 }
@@ -66,11 +74,15 @@ export default function SidePanel({
   /* 실거래 */
   const [days, setDays] = useState<7 | 30>(30)
 
-  /** 순위 목록은 상위 10위까지만 보여주고 필요할 때 펼친다 (인기 탭은 HotPanel이 자체 관리) */
+  /**
+   * 목록은 10개씩 끊어 보여주고, 더보기를 누를 때마다 10개씩 이어 붙인다.
+   * (인기 탭은 HotPanel이 자체 관리)
+   */
   const TOP_N = 10
-  const [expanded, setExpanded] = useState(false)
-  useEffect(() => setExpanded(false), [panel, gu, days])
-  const cut = <T,>(list: T[]) => (expanded ? list : list.slice(0, TOP_N))
+  const [shown, setShown] = useState(TOP_N)
+  useEffect(() => setShown(TOP_N), [panel, gu, days])
+  const cut = <T,>(list: T[]) => list.slice(0, shown)
+  const more = () => setShown((n) => n + TOP_N)
   const [zoneDeals, setZoneDeals] = useState<ZoneDeals[]>([])
   const [zdLoading, setZdLoading] = useState(false)
   const [zdMeta, setZdMeta] = useState<{ matched: number; fetched: number } | null>(null)
@@ -364,7 +376,7 @@ export default function SidePanel({
                 }
               />
             ))}
-            <MoreButton total={items.length} shown={cut(items).length} onMore={() => setExpanded(true)} />
+            <MoreButton total={items.length} shown={cut(items).length} step={TOP_N} onMore={more} />
           </>
         )}
 
@@ -378,14 +390,10 @@ export default function SidePanel({
             {cut(zoneDeals).map((z) => (
               <ZoneDealCard key={z.id} zone={z} onOpen={onFocus} />
             ))}
-            <MoreButton
-              total={zoneDeals.length}
-              shown={cut(zoneDeals).length}
-              onMore={() => setExpanded(true)}
-            />
+            <MoreButton total={zoneDeals.length} shown={cut(zoneDeals).length} step={TOP_N} onMore={more} />
             {gu && zdMeta && (
               <p className="px-4 py-3 text-[11px] leading-relaxed text-gray-400">
-                {gu}에서 최근 6개월 {zdMeta.fetched.toLocaleString()}건을 조회해 구역 경계 안{' '}
+                {gu === ALL_GU ? '서울 전체' : gu}에서 최근 6개월 {zdMeta.fetched.toLocaleString()}건을 조회해 구역 경계 안{' '}
                 {zdMeta.matched.toLocaleString()}건을 연결했습니다. 구역 밖 거래는 제외됩니다.
               </p>
             )}

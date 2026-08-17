@@ -8,22 +8,61 @@
  */
 export default function Sparkline({
   series,
+  deals,
   width = 150,
   height = 46,
 }: {
   series: { ym: string; value: number | null }[]
+  /**
+   * 개별 거래. 월별 중앙값이 한 점뿐이면 선이 안 그려지는데,
+   * 거래가 1~2건인 구역이 많아 그 카드만 그래프가 비어 보인다.
+   * 그럴 때는 거래를 계약일 순으로 찍어 한 건씩이라도 흐름을 보여준다.
+   */
+  deals?: { dealDate: string; pricePerLandPyeong: number | null }[]
   width?: number
   height?: number
 }) {
-  const values = series.map((s) => s.value)
+  const monthly = series.map((s) => s.value)
+  const monthlyPresent = monthly.filter((v): v is number => v != null)
+
+  // 월별로 점이 부족하면 개별 거래로 대체한다
+  const usingDeals = monthlyPresent.length < 2
+  const dealPoints = usingDeals
+    ? (deals ?? [])
+        .filter((d) => d.pricePerLandPyeong != null)
+        .slice()
+        .sort((a, b) => a.dealDate.localeCompare(b.dealDate))
+        .map((d) => d.pricePerLandPyeong as number)
+    : []
+
+  const values: (number | null)[] = usingDeals ? dealPoints : monthly
   const present = values.filter((v): v is number => v != null)
-  if (present.length < 2) {
+
+  if (present.length === 1) {
+    // 한 건뿐이면 선이 아니라 점 하나로 — 없는 추세를 그리지 않는다
+    return (
+      <svg width={width} height={height} className="overflow-visible">
+        <line
+          x1={4}
+          y1={height / 2}
+          x2={width - 4}
+          y2={height / 2}
+          stroke="#E5E7EB"
+          strokeWidth={1}
+          strokeDasharray="3 3"
+        />
+        <circle cx={width / 2} cy={height / 2} r={3.2} fill="#4F46E5" />
+      </svg>
+    )
+  }
+
+  if (present.length < 1) {
     return (
       <div
         style={{ width, height }}
         className="flex items-center justify-center text-[10px] text-gray-300"
       >
-        추이 부족
+        거래 없음
       </div>
     )
   }
@@ -31,7 +70,7 @@ export default function Sparkline({
   const min = Math.min(...present)
   const max = Math.max(...present)
   const span = max - min || 1
-  const stepX = width / Math.max(1, series.length - 1)
+  const stepX = width / Math.max(1, values.length - 1)
 
   const pts = values.map((v, i) =>
     v == null ? null : [i * stepX, height - ((v - min) / span) * (height - 6) - 3],

@@ -67,7 +67,7 @@ export default function ZoneDealCard({
         </div>
 
         <div className="shrink-0 text-right">
-          <Sparkline series={zone.series} />
+          <Sparkline series={zone.series} deals={zone.deals} />
           <p className="text-[12px] font-bold text-gray-800">
             {zone.medianPerPyeong ? `${formatPerPyeong(zone.medianPerPyeong)}/평` : '—'}
           </p>
