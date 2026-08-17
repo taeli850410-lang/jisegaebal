@@ -32,6 +32,7 @@ const nextConfig: NextConfig = {
     '/api/develops/detail': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json', './data/zone-progress.json'],
     '/api/parcels': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json', './data/zone-progress.json'],
     '/api/zone-transactions': [
+      './data/house-price-cache.json',
       './data/develops.seoul.json',
       './data/stages.seoul.json',
       './data/zone-summary.json', './data/zone-progress.json', './data/zone-plan.json',

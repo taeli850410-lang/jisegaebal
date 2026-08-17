@@ -1,4 +1,4 @@
-# 환경변수 — API 키가 들어가므로 절대 커밋 금지
+﻿# 환경변수 — API 키가 들어가므로 절대 커밋 금지
 .env
 .env.local
 .env.*.local
@@ -45,4 +45,3 @@ data/building-index.json
 
 data/semi-basement-pks.json
 
-data/house-price-cache.json
