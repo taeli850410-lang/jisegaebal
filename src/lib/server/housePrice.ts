@@ -84,23 +84,49 @@ async function resolvePnu(query: string): Promise<string | null> {
   }
 }
 
-async function fetchLot(pnu: string): Promise<LotPrices | null> {
+/**
+ * 조회 결과.
+ *
+ * "정상 응답인데 자료 없음"(ok:true, lot:null)과 "호출 실패"(ok:false)를 반드시 구분한다.
+ * V-World 는 부하가 걸리면 502 를 돌려주는데, 이걸 자료 없음으로 캐시에 박으면
+ * 그 지번은 영구히 공주가가 비게 된다. (세대수 캐시에서 같은 실수를 한 적이 있다)
+ */
+type LotResult = { ok: true; lot: LotPrices | null } | { ok: false }
+
+async function fetchLot(pnu: string): Promise<LotResult> {
   const key = process.env.VWORLD_API_KEY
-  if (!key) return null
+  if (!key) return { ok: false }
   const domain = process.env.VWORLD_DOMAIN ?? 'https://jisegaebal.vercel.app'
+  const url =
+    `https://api.vworld.kr/ned/data/getApartHousingPriceAttr?key=${key}` +
+    `&domain=${encodeURIComponent(domain)}&format=json&numOfRows=1000&pageNo=1&pnu=${pnu}`
+
+  // 502 는 일시적인 경우가 많아 잠깐 쉬었다 다시 시도한다
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 400 * attempt))
+    const r = await tryOnce(url)
+    if (r.ok || r.fatal) return r.ok ? { ok: true, lot: r.lot } : { ok: true, lot: null }
+  }
+  return { ok: false }
+}
+
+type Once =
+  | { ok: true; lot: LotPrices | null; fatal?: false }
+  | { ok: false; fatal: boolean }
+
+async function tryOnce(url: string): Promise<Once> {
   try {
-    const res = await fetch(
-      `https://api.vworld.kr/ned/data/getApartHousingPriceAttr?key=${key}` +
-        `&domain=${encodeURIComponent(domain)}&format=json&numOfRows=1000&pageNo=1&pnu=${pnu}`,
-      { cache: 'no-store' },
-    )
-    if (!res.ok) return null
+    const res = await fetch(url, { cache: 'no-store' })
+    // 5xx 는 재시도할 값어치가 있다. 4xx 는 다시 불러도 같다.
+    if (!res.ok) return { ok: false, fatal: res.status < 500 }
     const text = await res.text()
-    if (!text.trimStart().startsWith('{')) return null
-    const json = JSON.parse(text) as Record<string, { field?: unknown }>
+    if (!text.trimStart().startsWith('{')) return { ok: false, fatal: false }
+    const json = JSON.parse(text) as Record<string, { field?: unknown; resultCode?: string }>
     const body = json[Object.keys(json)[0]]
+    if (body?.resultCode === 'INCORRECT_KEY') return { ok: false, fatal: true }
     const raw = body?.field
-    if (!raw) return null
+    // 정상 응답인데 그 지번에 공동주택이 없는 경우다
+    if (!raw) return { ok: true, lot: null }
     const rows = (Array.isArray(raw) ? raw : [raw]) as {
       stdrYear?: string
       prvuseAr?: string
@@ -114,7 +140,8 @@ async function fetchLot(pnu: string): Promise<LotPrices | null> {
       const y = Number(r.stdrYear)
       if (Number.isFinite(y) && y > year) year = y
     }
-    if (!year) return null
+    // 연도가 없으면 쓸 수 있는 행이 없다는 뜻 — 정상 응답이지만 자료 없음
+    if (!year) return { ok: true, lot: null }
 
     const units: [number, number, boolean][] = []
     const seen = new Set<string>()
@@ -130,9 +157,9 @@ async function fetchLot(pnu: string): Promise<LotPrices | null> {
       seen.add(k)
       units.push([ar, pc, isBasement(ho)])
     }
-    return units.length ? { year, units } : null
+    return { ok: true, lot: units.length ? { year, units } : null }
   } catch {
-    return null
+    return { ok: false, fatal: false }
   }
 }
 
@@ -158,13 +185,13 @@ export async function getPublicPrice(
     lot = store[lotKey]
   } else {
     const pnu = await resolvePnu(`서울 ${gu} ${dong} ${jibun}`)
-    lot = pnu ? await fetchLot(pnu) : null
-    // 지오코딩 실패는 일시적일 수 있어 캐시하지 않는다
-    if (pnu) {
-      store[lotKey] = lot
-      dirty = true
-      persist()
-    }
+    if (!pnu) return null // 지오코딩 실패는 일시적일 수 있어 캐시하지 않는다
+    const res = await fetchLot(pnu)
+    if (!res.ok) return null // 호출 실패도 캐시하지 않는다 — 다음에 다시 시도한다
+    lot = res.lot
+    store[lotKey] = lot
+    dirty = true
+    persist()
   }
   if (!lot) return null
 
