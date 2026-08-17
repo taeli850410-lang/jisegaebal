@@ -9,6 +9,7 @@ import type { ApiDevelop } from '@/lib/types'
 import DealChart, { type ChartPoint } from './detail/DealChart'
 import BurdenSimulator from './detail/BurdenSimulator'
 import ZoneReport from './detail/ZoneReport'
+import ShareCard from './detail/ShareCard'
 
 /** 매칭 방식에 따라 신뢰도가 다르다 — 숨기지 않고 드러낸다 */
 const MATCH_LABEL: Record<string, { text: string; grade: 'A' | 'B' | 'C' }> = {
@@ -441,6 +442,7 @@ export default function DevelopPanel({
   const [showAllDeals, setShowAllDeals] = useState(false)
   const [simOpen, setSimOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
+  const [cardOpen, setCardOpen] = useState(false)
   const [news, setNews] = useState<NewsItem[] | null>(null)
   const [activeTab, setActiveTab] = useState<string>('deals')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -907,7 +909,7 @@ export default function DevelopPanel({
 
               <button
                 onClick={() => setReportOpen(true)}
-                className="mb-3 flex w-full items-center justify-between rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-left hover:bg-indigo-100"
+                className="mb-2 flex w-full items-center justify-between rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-left hover:bg-indigo-100"
               >
                 <span>
                   <span className="block text-[13px] font-bold text-indigo-800">
@@ -918,6 +920,21 @@ export default function DevelopPanel({
                   </span>
                 </span>
                 <span className="shrink-0 text-[11px] font-bold text-indigo-600">내려받기 ↓</span>
+              </button>
+
+              {/* 공유 카드 — 링크만 던지면 아무것도 안 보이고, 화면을 캡처하면
+                  지도·패널이 같이 찍힌다. 지금 값으로 카드 한 장을 그려 준다. */}
+              <button
+                onClick={() => setCardOpen(true)}
+                className="mb-3 flex w-full items-center justify-between rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-left hover:bg-slate-700"
+              >
+                <span>
+                  <span className="block text-[13px] font-bold text-white">구역 공유 카드 PNG</span>
+                  <span className="block text-[11px] text-slate-400">
+                    카카오톡·블로그용 이미지 — 지금 데이터로 즉시 생성
+                  </span>
+                </span>
+                <span className="shrink-0 text-[11px] font-bold text-slate-300">미리보기 →</span>
               </button>
 
               <ul className="divide-y divide-gray-100">
@@ -1984,6 +2001,33 @@ export default function DevelopPanel({
             apartments: data?.apartments ?? [],
           }}
           onClose={() => setReportOpen(false)}
+        />
+      )}
+
+      {cardOpen && (
+        <ShareCard
+          data={{
+            name: z.name,
+            projectType: z.projectType,
+            stage: z.stage ?? null,
+            canonicalStage: z.canonicalStage ?? null,
+            gu: z.gu ?? null,
+            dong: noBoundary ? (data?.zone.jibun ?? null) : (data?.zone.dong ?? null),
+            // 경계 없는 사업장은 면적이 원본에 없다. 0 을 넘기면 카드가 0평으로 그린다.
+            areaM2: noBoundary ? null : z.areaM2,
+            households: stats?.households.total ?? sum?.memberCount ?? null,
+            agingPct:
+              stats && stats.aging.denominator > 0
+                ? Math.round((stats.aging.now / stats.aging.denominator) * 100)
+                : null,
+            medianPerPyeong: data?.medianPerPyeong ?? null,
+            dealCount: data?.dealCount ?? null,
+            noticeDate: data?.zone.noticeDate ?? null,
+            source: noBoundary
+              ? '출처: 서울시 정비사업 정보몽땅 · 국토교통부 실거래가'
+              : '출처: 서울 열린데이터광장 · 정비사업 정보몽땅 · 국토교통부',
+          }}
+          onClose={() => setCardOpen(false)}
         />
       )}
 
