@@ -336,7 +336,7 @@ export default function HotPanel({
               <button
                 key={r.id}
                 onClick={r.open}
-                className="flex w-full items-center gap-2.5 border-b border-gray-50 px-4 py-3 text-left hover:bg-gray-50"
+                className="list-row flex w-full items-center gap-2.5 border-b border-gray-50 px-4 py-3 text-left hover:bg-gray-50"
               >
                 <span
                   className="w-4 shrink-0 text-center text-sm font-bold"

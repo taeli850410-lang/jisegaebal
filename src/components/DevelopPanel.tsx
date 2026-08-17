@@ -586,15 +586,30 @@ export default function DevelopPanel({
   })()
 
   return (
-    <aside className="absolute top-0 right-0 bottom-0 z-30 flex w-[400px] flex-col border-l border-gray-200 bg-white shadow-xl">
-      {/* ── 헤더 ── */}
-      <div className="shrink-0 border-b border-gray-100 px-5 pt-4 pb-0">
+    <aside
+      className="absolute top-0 right-0 bottom-0 z-30 flex w-[400px] flex-col border-l border-gray-200 bg-white"
+      style={{ boxShadow: 'var(--shadow-float)' }}
+    >
+      {/* ── 헤더 ──
+          스크롤해도 구역명·단계·탭은 남아야 한다. 본문이 밑으로 지나가므로
+          반투명 + 블러로 띄운다 (참고 앱 헤더와 같은 처리). */}
+      <div className="shrink-0 border-b border-gray-100 bg-white/85 px-5 pt-4 pb-0 backdrop-blur-md">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[11px] font-bold" style={{ color: type?.color }}>
+            {/* 사업종류를 색 막대로 한 번 더 인코딩한다 — 글자만으로는 스캔이 안 된다 */}
+            <p
+              className="flex items-center gap-1.5 text-[11px] font-bold tracking-tight"
+              style={{ color: type?.color }}
+            >
+              <span
+                className="inline-block h-3 w-[3px] rounded-sm"
+                style={{ background: type?.color }}
+              />
               {type?.label}
             </p>
-            <h2 className="mt-0.5 text-lg leading-snug font-bold break-keep">{z.name}</h2>
+            <h2 className="mt-1 text-lg leading-snug font-bold tracking-tight break-keep">
+              {z.name}
+            </h2>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
             <button
@@ -616,14 +631,11 @@ export default function DevelopPanel({
           </div>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          {/* 현재 단계만 꽉 찬 색. 나머지 배지는 틴트로 낮춰 위계를 만든다. */}
           <span
-            className="rounded px-1.5 py-0.5 text-[11px] font-bold"
-            style={
-              z.stage
-                ? { color: sColor, background: `${sColor}1A` }
-                : { color: '#9CA3AF', background: '#F3F4F6' }
-            }
+            className={z.stage ? 'chip chip--solid' : 'chip'}
+            style={{ '--chip': z.stage ? sColor : '#9CA3AF' } as React.CSSProperties}
           >
             {z.stage ?? '단계 미확인'}
           </span>
@@ -647,7 +659,9 @@ export default function DevelopPanel({
           </p>
         )}
 
-        <div className="mt-3 flex gap-2 pb-3">
+        {/* 핵심 수치 — 한 그릇에 담고 안쪽을 선으로 나눈다.
+            카드 3개를 띄우면 셋이 각각 떠서 헤더가 산만해진다. */}
+        <div className="card mt-3 mb-3 flex divide-x divide-gray-100">
           {[
             { label: '구역면적', value: noBoundary ? '—' : `${pyeong.toLocaleString()}평` },
             { label: '실거래', value: loading ? '…' : `${data?.dealCount ?? 0}건` },
@@ -656,14 +670,17 @@ export default function DevelopPanel({
               value: data?.medianPerPyeong ? perPyeong(data.medianPerPyeong) : '—',
             },
           ].map((c) => (
-            <div key={c.label} className="flex-1 rounded-lg bg-gray-50 px-2 py-1.5 text-center">
-              <p className="text-[10px] text-gray-500">{c.label}</p>
-              <p className="text-[13px] font-bold">{c.value}</p>
+            <div key={c.label} className="flex-1 px-2 py-2 text-center">
+              <p className="text-[10px] font-medium tracking-tight text-gray-500">{c.label}</p>
+              <p className="mt-0.5 text-[14px] font-extrabold tracking-tight tabular-nums">
+                {c.value}
+              </p>
             </div>
           ))}
         </div>
 
-        {/* 탭 — 클릭하면 해당 섹션으로 스크롤. 8개라 가로 스크롤된다. */}
+        {/* 탭 — 클릭하면 해당 섹션으로 스크롤. 8개라 가로 스크롤된다.
+            활성 탭은 밑줄 + 색. 밑줄만 쓰면 가로 스크롤 중에 어디가 활성인지 놓친다. */}
         <nav
           ref={tabBarRef}
           className="thin-scroll -mx-5 flex gap-4 overflow-x-auto border-t border-gray-100 px-5"
@@ -675,10 +692,10 @@ export default function DevelopPanel({
                 key={t.key}
                 data-tab={t.key}
                 onClick={() => goToSection(t.key)}
-                className={`shrink-0 border-b-2 py-2.5 text-[13px] font-bold whitespace-nowrap transition-colors ${
+                className={`shrink-0 border-b-2 py-2.5 text-[13px] font-bold tracking-tight whitespace-nowrap transition-colors ${
                   on
                     ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-indigo-600'
+                    : 'border-transparent text-gray-400 hover:text-gray-700'
                 }`}
               >
                 {t.label}
@@ -697,20 +714,20 @@ export default function DevelopPanel({
         {!loading && (
           <>
             {/* 실거래 */}
-            <section data-section="deals"
-              className="border-b-8 border-gray-50 px-5 py-4"
+            <section data-section="deals" className="panel-section"
+              style={{ '--accent': '#6366f1' } as React.CSSProperties}
             >
               <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-bold">실거래</h3>
+                <h3 className="panel-h mb-0">실거래</h3>
                 <span className="text-[11px] text-gray-400">최근 24개월</span>
               </div>
 
               {data?.unavailable ? (
-                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs text-gray-500">
+                <p className="note-box note-box--center">
                   실거래 데이터를 불러올 수 없습니다.
                 </p>
               ) : deals.length === 0 ? (
-                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs leading-relaxed text-gray-500">
+                <p className="note-box note-box--center">
                   {noBoundary ? (
                     <>
                       대표지번 반경 250m 안에서 신고된 거래가 없습니다.
@@ -802,10 +819,10 @@ export default function DevelopPanel({
             </section>
 
             {/* 진행현황 */}
-            <section data-section="progress"
-              className="border-b-8 border-gray-50 px-5 py-4"
+            <section data-section="progress" className="panel-section"
+              style={{ '--accent': '#0ea5e9' } as React.CSSProperties}
             >
-              <h3 className="mb-3 text-sm font-bold">진행현황</h3>
+              <h3 className="panel-h">진행현황</h3>
               {canonical ? (
                 <ol className="relative">
                   {STAGES.filter((s) => s.group !== '완료').map((s, i, arr) => {
@@ -865,13 +882,13 @@ export default function DevelopPanel({
                   })}
                 </ol>
               ) : (
-                <p className="rounded-lg bg-gray-50 px-3 py-4 text-xs leading-relaxed text-gray-500">
+                <p className="note-box">
                   정비몽땅 사업장과 연결되지 않아 진행단계를 확인할 수 없습니다. 해제·완료된 과거
                   구역이거나, 지역주택·리모델링처럼 경계 데이터에 없는 유형일 수 있습니다.
                 </p>
               )}
 
-              <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2.5 text-[11px] leading-relaxed text-gray-500">
+              <div className="note-box mt-3">
                 {z.stage && (
                   <p>
                     정비몽땅 원본 단계 <b className="text-gray-700">{z.stage}</b>
@@ -904,8 +921,10 @@ export default function DevelopPanel({
             </section>
 
             {/* 자료실 — 원문으로 바로 가는 링크. 파일을 우리가 복제해 두지는 않는다. */}
-            <section data-section="library" className="border-b-8 border-gray-50 px-5 py-4">
-              <h3 className="mb-2 text-sm font-bold">자료실</h3>
+            <section data-section="library" className="panel-section"
+              style={{ '--accent': '#8b5cf6' } as React.CSSProperties}
+            >
+              <h3 className="panel-h">자료실</h3>
 
               <button
                 onClick={() => setReportOpen(true)}
@@ -1026,10 +1045,10 @@ export default function DevelopPanel({
             </section>
 
             {/* 구역정보 */}
-            <section data-section="info"
-              className="border-b-8 border-gray-50 px-5 py-4"
+            <section data-section="info" className="panel-section"
+              style={{ '--accent': '#14b8a6' } as React.CSSProperties}
             >
-              <h3 className="mb-2 text-sm font-bold">구역정보</h3>
+              <h3 className="panel-h">구역정보</h3>
               <dl className="divide-y divide-gray-100 text-sm">
                 {[
                   {
@@ -1074,7 +1093,7 @@ export default function DevelopPanel({
               {/* 정비몽땅 사업개요 제원 — 있는 구역만 */}
               {sum && (
                 <>
-                  <h3 className="mt-5 mb-2 text-sm font-bold">
+                  <h3 className="panel-sub">
                     사업 제원
                     <Grade grade="A" />
                   </h3>
@@ -1103,7 +1122,7 @@ export default function DevelopPanel({
                   {/* 토지이용계획 — 값이 하나라도 있을 때만 */}
                   {(sum.landUseHousing || sum.landUseRoad || sum.landUsePark || sum.landUseGreen) && (
                     <>
-                      <h3 className="mt-5 mb-2 text-sm font-bold">토지이용 계획</h3>
+                      <h3 className="panel-sub">토지이용 계획</h3>
                       <div className="space-y-1.5">
                         {(
                           [
@@ -1188,7 +1207,7 @@ export default function DevelopPanel({
               {/* ── 공급 계획 (정비몽땅 사업개요) ── */}
               {plan && (plan.supplySale?.total || plan.supplyRent?.total) && (
                 <>
-                  <h3 className="mt-6 mb-2 text-sm font-bold">
+                  <h3 className="panel-sub">
                     공급 계획
                     <Grade grade="A" />
                   </h3>
@@ -1264,7 +1283,7 @@ export default function DevelopPanel({
 
                   {(plan.floors || plan.maxHeightM || plan.improvement?.total) && (
                     <>
-                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                      <h3 className="panel-sub">
                         건축 계획
                         <Grade grade="A" />
                       </h3>
@@ -1296,7 +1315,7 @@ export default function DevelopPanel({
 
                   {plan.facilities.length > 0 && (
                     <>
-                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                      <h3 className="panel-sub">
                         공동이용 시설
                         <Grade grade="A" />
                       </h3>
@@ -1318,7 +1337,7 @@ export default function DevelopPanel({
 
                   {plan.office && (plan.office.address || plan.office.phone) && (
                     <>
-                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                      <h3 className="panel-sub">
                         추진 주체
                         <Grade grade="A" />
                       </h3>
@@ -1359,7 +1378,7 @@ export default function DevelopPanel({
               {/* ── 세대 현황 · 노후도 · 개발 여건 · 유형별 토지 면적 ── */}
               {stats && (
                 <>
-                  <h3 className="mt-6 mb-2 text-sm font-bold">
+                  <h3 className="panel-sub">
                     세대 현황
                     <Grade grade="B" />
                   </h3>
@@ -1379,7 +1398,7 @@ export default function DevelopPanel({
                     ]}
                   />
 
-                  <h3 className="mt-5 mb-2 text-sm font-bold">
+                  <h3 className="panel-sub">
                     노후도
                     <span className="ml-1 text-[11px] font-normal text-gray-400">
                       {stats.aging.base}년 기준 · 주거용 동
@@ -1401,12 +1420,12 @@ export default function DevelopPanel({
                       }))}
                     />
                   ) : (
-                    <p className="rounded-lg bg-gray-50 px-3 py-3 text-xs text-gray-500">
+                    <p className="note-box">
                       구역 안에서 사용승인일이 확인된 주거용 건물이 없습니다.
                     </p>
                   )}
 
-                  <h3 className="mt-5 mb-2 text-sm font-bold">
+                  <h3 className="panel-sub">
                     개발 여건
                     <Grade grade="B" />
                   </h3>
@@ -1479,7 +1498,7 @@ export default function DevelopPanel({
                   {/* 현황 제원 — 정비몽땅 사업개요가 없는 구역도 지금 밀도를 알 수 있다 */}
                   {stats.actual && (stats.actual.far || stats.actual.useZones.length > 0) && (
                     <>
-                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                      <h3 className="panel-sub">
                         현황 제원
                         <span className="ml-1 text-[11px] font-normal text-gray-400">
                           건축물대장 기준
@@ -1515,7 +1534,7 @@ export default function DevelopPanel({
 
                   {stats.landUse.length > 0 && (
                     <>
-                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                      <h3 className="panel-sub">
                         유형별 토지 면적
                         <Grade grade="B" />
                       </h3>
@@ -1559,7 +1578,7 @@ export default function DevelopPanel({
                   {/* 용도별 토지 면적 — 토지특성의 용도지역, 면적 기준 */}
                   {stats.actual?.useZones && stats.actual.useZones.length > 0 && (
                     <>
-                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                      <h3 className="panel-sub">
                         용도별 토지 면적
                         <Grade grade="B" />
                       </h3>
@@ -1580,7 +1599,7 @@ export default function DevelopPanel({
                   {/* 소유자별 토지 면적 — 토지소유정보의 소유구분 */}
                   {stats.ownership && stats.ownership.byOwner.length > 0 && (
                     <>
-                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                      <h3 className="panel-sub">
                         소유자별 토지 면적
                         <Grade grade="B" />
                       </h3>
@@ -1606,7 +1625,7 @@ export default function DevelopPanel({
                       토지이음이 보여주는 항목과 같은 LURIS 자료다. */}
                   {stats.regulations && stats.regulations.length > 0 && (
                     <>
-                      <h3 className="mt-5 mb-2 text-sm font-bold">
+                      <h3 className="panel-sub">
                         규제 정보
                         <span className="ml-1 text-[11px] font-normal text-gray-400">
                           토지이용계획
@@ -1686,17 +1705,19 @@ export default function DevelopPanel({
             </section>
 
             {/* 뉴스 — 구글 뉴스 RSS. 제목·언론사·링크만 보여주고 본문은 원문으로 보낸다. */}
-            <section data-section="news" className="border-b-8 border-gray-50 px-5 py-4">
+            <section data-section="news" className="panel-section"
+              style={{ '--accent': '#f59e0b' } as React.CSSProperties}
+            >
               <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-bold">뉴스</h3>
+                <h3 className="panel-h mb-0">뉴스</h3>
                 <span className="text-[11px] text-gray-400">구글 뉴스</span>
               </div>
               {news === null ? (
-                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs text-gray-400">
+                <p className="note-box note-box--center">
                   불러오는 중…
                 </p>
               ) : news.length === 0 ? (
-                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs text-gray-500">
+                <p className="note-box note-box--center">
                   이 구역 관련 기사를 찾지 못했습니다.
                 </p>
               ) : (
@@ -1724,8 +1745,10 @@ export default function DevelopPanel({
             </section>
 
             {/* 인근 구역 */}
-            <section data-section="nearby" className="border-b-8 border-gray-50 px-5 py-4">
-              <h3 className="mb-2 text-sm font-bold">인근 구역</h3>
+            <section data-section="nearby" className="panel-section"
+              style={{ '--accent': '#ec4899' } as React.CSSProperties}
+            >
+              <h3 className="panel-h">인근 구역</h3>
               {data?.nearby.length ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-[11px]">
@@ -1780,7 +1803,7 @@ export default function DevelopPanel({
                   </table>
                 </div>
               ) : (
-                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs text-gray-500">
+                <p className="note-box note-box--center">
                   반경 3km 안에 다른 정비구역이 없습니다.
                 </p>
               )}
@@ -1790,8 +1813,10 @@ export default function DevelopPanel({
             </section>
 
             {/* 인근 아파트 */}
-            <section data-section="apts" className="border-b-8 border-gray-50 px-5 py-4">
-              <h3 className="mb-2 text-sm font-bold">
+            <section data-section="apts" className="panel-section"
+              style={{ '--accent': '#3b82f6' } as React.CSSProperties}
+            >
+              <h3 className="panel-h">
                 인근 아파트
                 <span className="ml-1 text-[11px] font-normal text-gray-400">
                   반경 1.5km · 최근 12개월 실거래
@@ -1849,15 +1874,17 @@ export default function DevelopPanel({
                   </tbody>
                 </table>
               ) : (
-                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs text-gray-500">
+                <p className="note-box note-box--center">
                   반경 1.5km 안에 최근 아파트 실거래가 없습니다.
                 </p>
               )}
             </section>
 
             {/* 신축 공사 */}
-            <section data-section="construction" className="px-5 py-4">
-              <h3 className="mb-2 text-sm font-bold">
+            <section data-section="construction" className="panel-section"
+              style={{ '--accent': '#10b981' } as React.CSSProperties}
+            >
+              <h3 className="panel-h">
                 신축 공사
                 <span className="ml-1 text-[11px] font-normal text-gray-400">반경 3km</span>
               </h3>
@@ -1914,7 +1941,7 @@ export default function DevelopPanel({
                   })}
                 </ul>
               ) : (
-                <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs leading-relaxed text-gray-500">
+                <p className="note-box note-box--center">
                   반경 3km 안에 착공·준공 기록이 있는 구역이 없습니다.
                 </p>
               )}

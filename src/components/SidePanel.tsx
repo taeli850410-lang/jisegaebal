@@ -342,7 +342,7 @@ export default function SidePanel({
               <button
                 key={d.id}
                 onClick={() => onSelect(d)}
-                className="flex w-full items-center gap-2.5 border-b border-gray-50 px-4 py-3 text-left hover:bg-gray-50"
+                className="list-row flex w-full items-center gap-2.5 border-b border-gray-50 px-4 py-3 text-left hover:bg-gray-50"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">

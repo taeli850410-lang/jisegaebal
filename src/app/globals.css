@@ -6,6 +6,19 @@
   --muted: #6b7280;
   --line: #e5e7eb;
   --brand: #1a237e;
+
+  /* ── 표면 계층 ──────────────────────────────────────
+     지도는 밝게 두고 그 위에 얹히는 패널만 깊이를 준다.
+     지도를 어둡게 하면 카카오 타일과 싸우고 표가 안 읽힌다.
+     그림자는 두 겹 — 가까운 한 겹은 경계를, 먼 한 겹은 떠 있음을 만든다. */
+  --surface: #ffffff;
+  --surface-sunken: #f8fafc;
+  --surface-raised: #ffffff;
+  --line-soft: #f1f5f9;
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
+  --shadow-float:
+    0 1px 2px rgb(15 23 42 / 0.06), 0 8px 24px -6px rgb(15 23 42 / 0.12);
+  --radius: 10px;
 }
 
 html,
@@ -20,6 +33,118 @@ body {
     'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', 'Apple SD Gothic Neo',
     system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* ── 패널 공통 ─────────────────────────────────────────
+   상세 패널은 섹션이 12개를 넘는다. 전에는 8px 회색 띠로 갈랐는데
+   띠 자체가 화면 지분을 먹고, 스크롤하면 어디가 끊긴 건지 안 보였다.
+   얇은 선 + 제목 앞 짧은 색 막대로 바꾼다 — 훑을 때 제목만 눈에 걸린다. */
+.panel-section {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 18px 20px;
+}
+.panel-section:last-child {
+  border-bottom: 0;
+}
+
+.panel-h {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+/* 제목 앞 색 막대 — 섹션마다 --accent 를 주면 색으로도 구분된다 */
+.panel-h::before {
+  content: '';
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--accent, #6366f1);
+}
+
+/* 하위 제목 — 구역정보 한 섹션 안에만 표가 열 개 넘게 들어간다.
+   섹션 제목과 같은 모양을 쓰면 위계가 평평해지므로 색 막대를 빼고 한 단계 낮춘다. */
+.panel-sub {
+  margin: 20px 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #475569;
+}
+
+/* 카드 — 값 묶음을 담는 기본 그릇 */
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-card);
+}
+
+/* 목록 한 줄.
+   기존에는 hover 에 배경색만 줬는데, 행 높이가 낮고 배경이 흐려 눌리는 줄인지
+   잘 안 읽혔다. 왼쪽에 색 막대를 밀어 넣어 "이 줄"을 분명히 한다. */
+.list-row {
+  position: relative;
+  transition: background-color 0.12s ease;
+}
+.list-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: #6366f1;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.12s ease;
+}
+.list-row:hover::before {
+  transform: scaleX(1);
+}
+
+/* 자료 없음 / 주석 상자.
+   카드(.card)는 값이 든 그릇이고 이건 값이 없다는 알림이다.
+   같은 회색 덩어리로 두면 둘이 구분되지 않아, 점선 테두리로 비었음을 표시한다. */
+.note-box {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  padding: 14px 12px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.note-box--center {
+  text-align: center;
+}
+
+/* 배지 — 참고 앱처럼 반투명 틴트 + 같은 색 테두리.
+   꽉 찬 색 배지를 여러 개 놓으면 서로 소리를 질러 위계가 사라진다.
+   현재 단계 하나만 solid 로 두고 나머지는 틴트로 낮춘다. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--chip, #6366f1) 30%, transparent);
+  background: color-mix(in srgb, var(--chip, #6366f1) 12%, transparent);
+  color: var(--chip, #6366f1);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.chip--solid {
+  border-color: transparent;
+  background: var(--chip, #6366f1);
+  color: #fff;
 }
 
 /* ── 지도 위 구역 라벨 (CustomOverlay) ──────────────────────────

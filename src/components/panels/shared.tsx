@@ -45,8 +45,8 @@ export function TypeBadge({ code, className = '' }: { code: string; className?: 
   const t = PROJECT_TYPE_MAP.get(code)
   return (
     <span
-      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${className}`}
-      style={{ background: `${t?.color ?? '#888'}1A`, color: t?.color ?? '#666' }}
+      className={`chip shrink-0 ${className}`}
+      style={{ '--chip': t?.color ?? '#6b7280' } as React.CSSProperties}
     >
       {t?.short ?? '기타'}
     </span>
@@ -62,10 +62,7 @@ export function StageBadge({
 }) {
   const c = stage ? stageColor(canonical) : '#9CA3AF'
   return (
-    <span
-      className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold"
-      style={{ background: `${c}1A`, color: c }}
-    >
+    <span className="chip shrink-0" style={{ '--chip': c } as React.CSSProperties}>
       {stage ?? '단계 미확인'}
     </span>
   )
@@ -86,7 +83,7 @@ export function RankRow({
   return (
     <button
       onClick={() => onSelect(d)}
-      className="flex w-full items-center gap-2.5 border-b border-gray-50 px-4 py-2.5 text-left hover:bg-gray-50"
+      className="list-row flex w-full items-center gap-2.5 border-b border-gray-50 px-4 py-2.5 text-left hover:bg-gray-50"
     >
       <span className="w-5 shrink-0 text-center text-xs font-bold text-gray-400">{rank}</span>
       <div className="min-w-0 flex-1">
@@ -159,8 +156,8 @@ export function PanelHint({ title, desc }: { title: string; desc: string }) {
  */
 export function Empty({ text }: { text: string }) {
   return (
-    <p className="px-4 py-10 text-center text-sm leading-relaxed whitespace-pre-line text-gray-400">
-      {text}
-    </p>
+    <div className="px-4 py-8">
+      <p className="note-box note-box--center whitespace-pre-line">{text}</p>
+    </div>
   )
 }
