@@ -74,6 +74,29 @@ const TYPE_FONT = '800 10.5px system-ui, sans-serif'
 const STAGE_FONT = '700 11px system-ui, sans-serif'
 const QUIET_FONT = '700 11px system-ui, sans-serif'
 const CLUSTER_FONT = '700 12px system-ui, sans-serif'
+const APT_FONT = '700 11px system-ui, sans-serif'
+
+/** 단지 마커를 그리는 줌 — 이보다 축소하면 라벨이 지도를 덮는다 */
+const APT_MAX_LEVEL = 5
+
+interface AptMarker {
+  name: string
+  lng: number
+  lat: number
+  area: number
+  price: number
+  dealDate: string
+  count: number
+}
+
+/** 마커에 넣을 짧은 가격 — "17억", "8.5억", "9,500만" */
+function eokLabel(won: number): string {
+  if (won >= 100_000_000) {
+    const e = won / 100_000_000
+    return `${e >= 10 ? Math.round(e) : e.toFixed(1).replace(/\.0$/, '')}억`
+  }
+  return `${Math.round(won / 10_000).toLocaleString()}만`
+}
 
 function labelBox(d: ApiDevelop): { w: number; h: number } {
   const name = shortName(d.name)
@@ -95,6 +118,7 @@ export default function MapView() {
   const polygonsRef = useRef<any[]>([])
   const labelsRef = useRef<any[]>([])
   const clusterOverlaysRef = useRef<any[]>([])
+  const aptOverlaysRef = useRef<any[]>([])
   const parcelPolysRef = useRef<any[]>([])
   const roadviewOverlayRef = useRef<any>(null)
   const roadviewInstanceRef = useRef<any>(null)
@@ -129,6 +153,8 @@ export default function MapView() {
   const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(false)
   const [parcelCount, setParcelCount] = useState(0)
+  const [aptCount, setAptCount] = useState(0)
+  const [aptLoading, setAptLoading] = useState(false)
   const [rulerDistance, setRulerDistance] = useState<number | null>(null)
   const [virtualZone, setVirtualZone] = useState<{ area: number; points: number } | null>(null)
   const [selected, setSelected] = useState<ApiDevelop | null>(null)
@@ -454,6 +480,85 @@ export default function MapView() {
     return () => container.removeEventListener('click', onClick)
   }, [ready, clusters])
 
+  /* ─────────────── 3-c. 아파트 단지 시세 마커 ─────────────── */
+  useEffect(() => {
+    if (!ready) return
+    const kakao = window.kakao
+    const map = mapRef.current
+
+    aptOverlaysRef.current.forEach((o) => o.setMap(null))
+    aptOverlaysRef.current = []
+
+    if (!layers.apartments) {
+      setAptCount(0)
+      return
+    }
+    // 축소 상태에서는 단지가 수백 개라 라벨이 지도를 덮는다
+    if (level > APT_MAX_LEVEL) {
+      setAptCount(0)
+      return
+    }
+
+    let cancelled = false
+    const b = map.getBounds()
+    const sw = b.getSouthWest()
+    const ne = b.getNorthEast()
+    const bbox = [sw.getLng(), sw.getLat(), ne.getLng(), ne.getLat()].join(',')
+
+    setAptLoading(true)
+    fetch(`/api/apt-markers?bbox=${bbox}`)
+      .then((r) => r.json())
+      .then((j: { markers?: AptMarker[] }) => {
+        if (cancelled) return
+        const list = j.markers ?? []
+
+        // 라벨끼리 겹치면 못 읽는다. 최근 거래부터 자리를 잡는다.
+        const projection = map.getProjection()
+        const placed: { l: number; t: number; r: number; b: number }[] = []
+        const GAP = 3
+        let shown = 0
+
+        for (const m of list) {
+          const pos = new kakao.maps.LatLng(m.lat, m.lng)
+          const pt = projection.containerPointFromCoords(pos)
+          const label = `${m.area} ${eokLabel(m.price)}`
+          const w = textWidth(label, APT_FONT) + 18
+          const h = 22
+          const box = {
+            l: pt.x - w / 2 - GAP,
+            t: pt.y - h - GAP,
+            r: pt.x + w / 2 + GAP,
+            b: pt.y + GAP,
+          }
+          if (placed.some((p) => !(box.r <= p.l || p.r <= box.l || box.b <= p.t || p.b <= box.t))) {
+            continue
+          }
+          placed.push(box)
+          shown++
+
+          const overlay = new kakao.maps.CustomOverlay({
+            map,
+            position: pos,
+            yAnchor: 1,
+            zIndex: 2,
+            clickable: false,
+            content:
+              `<div class="apt-price" title="${escapeHtml(m.name)} · 전용 ${m.area}㎡ · ` +
+              `${m.dealDate} · ${m.count}건">` +
+              `<b>${m.area}</b> ${escapeHtml(eokLabel(m.price))}</div>`,
+          })
+          aptOverlaysRef.current.push(overlay)
+        }
+        setAptCount(shown)
+      })
+      .catch(() => !cancelled && setAptCount(0))
+      .finally(() => !cancelled && setAptLoading(false))
+
+    return () => {
+      cancelled = true
+    }
+  }, [ready, layers.apartments, level, develops])
+
   /* ─────────────── 4. 필지(지적도·노후도) ─────────────── */
   const drawParcels = useCallback(async () => {
     if (!ready) return
@@ -731,8 +836,16 @@ export default function MapView() {
       ? `지적·노후도는 확대해야 표시됩니다 (현재 레벨 ${level} → ${PARCEL_MAX_LEVEL} 이하)`
       : null
 
-  const unavailableLayer =
-    layers.transactions || layers.listings || layers.auctions || layers.apartments
+  // 단지는 이제 실제로 그린다. 나머지 셋만 아직 미연동이다.
+  const unavailableLayer = layers.transactions || layers.listings || layers.auctions
+
+  const aptHint = layers.apartments
+    ? level > APT_MAX_LEVEL
+      ? `단지 시세는 확대해야 표시됩니다 (현재 레벨 ${level} → ${APT_MAX_LEVEL} 이하)`
+      : aptLoading
+        ? '단지 시세 불러오는 중…'
+        : `단지 ${aptCount}개 · 최근 12개월 아파트 실거래`
+    : null
 
   return (
     <div className="flex h-full">
@@ -913,9 +1026,14 @@ export default function MapView() {
               {parcelHint}
             </div>
           )}
+          {aptHint && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800 shadow-sm">
+              {aptHint}
+            </div>
+          )}
           {unavailableLayer && (
             <div className="rounded-lg border border-gray-200 bg-white/95 px-3 py-1.5 text-xs text-gray-600 shadow-sm">
-              실거래·매물·경매·단지는 아직 <b>미연동</b>입니다 (국토부 실거래 API 등 연동 필요)
+              실거래·매물·경매 레이어는 아직 <b>미연동</b>입니다 (중개 제휴·법원경매 연동 필요)
             </div>
           )}
           {rulerDistance !== null && (

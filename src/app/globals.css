@@ -112,6 +112,39 @@ body {
   }
 }
 
+/* ── 아파트 단지 시세 마커 ────────────────────────────
+   벤치마크처럼 "84 17억" 한 줄. 아래에 꼬리를 달아 단지 위치를 가리킨다. */
+.apt-price {
+  position: relative;
+  transform: translate(-50%, 0);
+  white-space: nowrap;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #6366f1;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  pointer-events: none;
+}
+.apt-price b {
+  margin-right: 3px;
+  font-weight: 800;
+  opacity: 0.75;
+}
+.apt-price::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  margin-left: -3px;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid #6366f1;
+}
+
 /* ── 지역별 집계 배지 (축소 뷰) ──────────────────────
    위: 지역명(흰 바탕) / 아래: 구역 수(진한 바탕). 누르면 그 지역으로 확대. */
 .zone-cluster {
