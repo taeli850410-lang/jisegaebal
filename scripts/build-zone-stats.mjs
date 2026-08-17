@@ -27,12 +27,24 @@ if (!VKEY || !DGK) {
   process.exit(1)
 }
 
+// --limit 40 과 --limit=40 을 둘 다 받는다.
+// 등호 형식이 조용히 무시되는 바람에 400개 돌린다고 하고 40개만 돈 적이 있다.
 const arg = (name, dflt) => {
+  const eq = process.argv.find((a) => a.startsWith(`${name}=`))
+  if (eq) return eq.slice(name.length + 1)
   const i = process.argv.indexOf(name)
   return i >= 0 ? process.argv[i + 1] : dflt
 }
 const LIMIT = Number(arg('--limit', '40'))
 const GU = arg('--gu', null)
+/**
+ * 이 면적 미만 구역은 건너뛴다.
+ *
+ * 처음엔 3,000㎡ 였다 — API 한도가 빠듯해 큰 구역부터 챙겨야 했다.
+ * 건축물대장을 파일 색인으로 바꾼 뒤로는 그 이유가 없어졌고,
+ * 중구 도시환경정비사업지구처럼 수백㎡ 짜리도 엄연한 구역이라 기본값을 낮춘다.
+ */
+const MIN_AREA = Number(arg('--min-area', '500'))
 /** 이미 산출한 구역도 다시 계산한다 (필드를 추가했을 때) */
 const REFRESH = process.argv.includes('--refresh')
 /**
@@ -43,6 +55,15 @@ const REFRESH = process.argv.includes('--refresh')
  * tier1 은 구역당 WFS 1콜 + 법정동 캐시라 전 구역을 돌 수 있다.
  */
 const TIER1 = process.argv.includes('--tier1')
+
+/**
+ * tier1 이 남기고 간 것만 채운다 — 접도율·용도지역·규제·소유.
+ *
+ * tier1 을 전 구역에 돌려 세대·노후는 1,399개까지 왔는데, V-World 필지 항목은
+ * 106개에서 멈춰 있다. 그것만 있는 구역을 골라 다시 돈다.
+ * 건물은 파일 색인에서 오므로 여기서 드는 비용은 V-World 뿐이다.
+ */
+const VWORLD_ONLY = process.argv.includes('--vworld')
 
 const OUT = 'data/zone-stats.json'
 const stats = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf-8')) : {}
@@ -95,39 +116,69 @@ async function parcelsIn(zone) {
       if (!t.trimStart().startsWith('{')) continue
       const j = JSON.parse(t)
       const rings = outerRings(zone.geometry)
-      const out = []
-      for (const f of j.features ?? []) {
-        const p = f.properties ?? {}
-        if (!p.pnu) continue
-        const polys =
-          f.geometry.type === 'Polygon'
-            ? [f.geometry.coordinates[0]]
-            : f.geometry.coordinates.map((q) => q[0])
-        for (const ring of polys) {
-          if (ring.length < 4) continue
-          let cx = 0
-          let cy = 0
-          for (const [x, y] of ring) {
-            cx += x
-            cy += y
-          }
-          cx /= ring.length
-          cy /= ring.length
-          // 구역 경계 안쪽 필지만 센다
-          if (!rings.some((r) => pointInRing(cx, cy, r))) continue
-          out.push({
-            pnu: p.pnu,
-            jimok: (p.jibun ?? '').split(' ').pop() ?? '',
-            areaM2: Math.round(ringAreaM2(ring)),
-            jiga: num(p.jiga) || null,
-            // 건축물대장 파일은 코드가 아니라 이름으로 오므로 함께 들고 다닌다
-            gu: p.sig_nm ?? null,
-            dong: p.emd_nm ?? null,
-            bonbun: p.bonbun ?? null,
-            bubun: p.bubun ?? null,
-          })
+
+      /*
+       * 원칙은 "필지 중심이 구역 안"이다 — 경계에 걸친 필지를 통째로 세면
+       * 세대수·노후도가 부풀기 때문이다.
+       *
+       * 그런데 도로변 도시환경정비구역처럼 폭 20m 짜리 띠 모양 구역은
+       * 중심이 들어오는 필지가 하나도 없다. 서초금호·마포로1-8 등 4개 구역이
+       * 그래서 통계가 통째로 비어 있었다.
+       * 중심 판정으로 한 필지도 못 건지면 "겹치기만 해도" 로 한 번 더 훑는다.
+       */
+      const centroidOf = (ring) => {
+        let cx = 0
+        let cy = 0
+        for (const [x, y] of ring) {
+          cx += x
+          cy += y
         }
+        return [cx / ring.length, cy / ring.length]
       }
+      const overlaps = (ring) =>
+        ring.some(([x, y]) => rings.some((r) => pointInRing(x, y, r))) ||
+        rings.some((r) => r.some(([x, y]) => pointInRing(x, y, ring)))
+
+      const collect = (hit) => {
+        const acc = []
+        for (const f of j.features ?? []) {
+          const p = f.properties ?? {}
+          if (!p.pnu) continue
+          const polys =
+            f.geometry.type === 'Polygon'
+              ? [f.geometry.coordinates[0]]
+              : f.geometry.coordinates.map((q) => q[0])
+          for (const ring of polys) {
+            if (ring.length < 4) continue
+            if (!hit(ring)) continue
+            acc.push([p, ring])
+          }
+        }
+        return acc
+      }
+
+      let picked = collect((ring) => {
+        const [cx, cy] = centroidOf(ring)
+        return rings.some((r) => pointInRing(cx, cy, r))
+      })
+      let loose = false
+      if (!picked.length) {
+        picked = collect(overlaps)
+        loose = picked.length > 0
+      }
+      if (loose) console.log(`    (중심 판정 0필지 — 겹침 판정으로 ${picked.length}필지)`)
+
+      const out = picked.map(([p, ring]) => ({
+        pnu: p.pnu,
+        jimok: (p.jibun ?? '').split(' ').pop() ?? '',
+        areaM2: Math.round(ringAreaM2(ring)),
+        jiga: num(p.jiga) || null,
+        // 건축물대장 파일은 코드가 아니라 이름으로 오므로 함께 들고 다닌다
+        gu: p.sig_nm ?? null,
+        dong: p.emd_nm ?? null,
+        bonbun: p.bonbun ?? null,
+        bubun: p.bubun ?? null,
+      }))
       /*
        * 한 필지가 여러 조각(MultiPolygon)이면 링 수만큼 항목이 생긴다.
        * 그대로 두면 필지 수가 부풀고, 지번 단위 값(반지하 동수)이 조각 수만큼
@@ -635,10 +686,15 @@ function compute(zone, parcels, buildingsByLd, recapsByLd, landChars) {
 }
 
 /* ── 실행 ───────────────────────────────────────────── */
-let targets = develops.filter((d) => d.gu && d.areaM2 > 3000)
+let targets = develops.filter((d) => d.gu && d.areaM2 > MIN_AREA)
 if (GU) targets = targets.filter((d) => d.gu === GU)
-// 이미 만든 구역은 건너뛰고, 큰 구역부터 — 관심도가 높다
-if (!REFRESH) targets = targets.filter((d) => !(d.id in stats))
+if (VWORLD_ONLY) {
+  // 통계는 이미 있는데 필지 단위 V-World 항목만 비어 있는 구역
+  targets = targets.filter((d) => stats[d.id] && !stats[d.id].conditions?.abuttingBase)
+} else if (!REFRESH) {
+  // 이미 만든 구역은 건너뛰고, 큰 구역부터 — 관심도가 높다
+  targets = targets.filter((d) => !(d.id in stats))
+}
 targets = targets.sort((a, b) => b.areaM2 - a.areaM2)
 targets = targets.slice(0, LIMIT)
 
@@ -779,16 +835,24 @@ for (const [i, zone] of targets.entries()) {
    * 값싼 항목만 갈아끼우고 비싼 항목은 이전 것을 살린다.
    */
   const prev = stats[zone.id]
-  if (TIER1 && prev) {
-    if (prev.regulations) s.regulations = prev.regulations
-    if (prev.ownership) s.ownership = prev.ownership
-    if (prev.landCharSampled) s.landCharSampled = prev.landCharSampled
-    if (prev.conditions?.abuttingBase) {
+  // vworld 모드에서도 이번에 못 받은 항목은 이전 것을 살린다 —
+  // 한도에 걸린 한 번의 실행이 이미 받아 둔 값을 지우면 안 된다
+  // 이번에 못 받은 항목만 이전 것으로 되돌린다. 받은 건 새 값이 이긴다 —
+  // 그래야 tier1(항상 빈 값)과 vworld(채우러 온 실행)를 한 규칙으로 다룰 수 있다.
+  if (prev) {
+    if (!s.regulations?.length && prev.regulations) s.regulations = prev.regulations
+    if (!s.ownership && prev.ownership) s.ownership = prev.ownership
+    if (!s.landCharSampled && prev.landCharSampled) s.landCharSampled = prev.landCharSampled
+    if (!s.conditions.abuttingBase && prev.conditions?.abuttingBase) {
       s.conditions.abutting = prev.conditions.abutting
       s.conditions.abuttingBase = prev.conditions.abuttingBase
     }
-    if (prev.actual?.useZones?.length) s.actual.useZones = prev.actual.useZones
-    if (prev.actual?.roadMix?.length) s.actual.roadMix = prev.actual.roadMix
+    if (!s.actual.useZones?.length && prev.actual?.useZones?.length) {
+      s.actual.useZones = prev.actual.useZones
+    }
+    if (!s.actual.roadMix?.length && prev.actual?.roadMix?.length) {
+      s.actual.roadMix = prev.actual.roadMix
+    }
   }
   stats[zone.id] = s
   ok++
