@@ -587,7 +587,8 @@ export default function DevelopPanel({
 
   return (
     <aside
-      className="absolute top-0 right-0 bottom-0 z-30 flex w-[400px] flex-col border-l border-gray-200 bg-white"
+      /* 좁은 화면에서는 400px 이 화면을 넘어 지도까지 밀어낸다. 전체 폭으로 덮는다. */
+      className="absolute top-0 right-0 bottom-0 z-30 flex w-full flex-col border-l border-gray-200 bg-white sm:w-[400px]"
       style={{ boxShadow: 'var(--shadow-float)' }}
     >
       {/* ── 헤더 ──

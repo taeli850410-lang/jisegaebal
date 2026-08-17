@@ -84,6 +84,20 @@ body {
   box-shadow: var(--shadow-card);
 }
 
+/* ── 터치 기기 ────────────────────────────────────────
+   마우스 커서는 1px 을 찍지만 손가락은 그러지 못한다.
+
+   pointer 가 아니라 any-pointer 로 본다. 터치스크린 노트북은 마우스가 함께
+   달려 있어 주 포인터가 정밀(fine)로 잡히고, pointer:coarse 는 false 가 된다 —
+   정작 손가락으로 쓰는 기기에서 버튼이 안 커진다.
+   any-pointer 는 "입력 수단 중 거친 게 하나라도 있으면" 이라 하이브리드를 잡는다. */
+@media (any-pointer: coarse) {
+  .touch-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
 /* 목록 한 줄.
    기존에는 hover 에 배경색만 줬는데, 행 높이가 낮고 배경이 흐려 눌리는 줄인지
    잘 안 읽혔다. 왼쪽에 색 막대를 밀어 넣어 "이 줄"을 분명히 한다. */

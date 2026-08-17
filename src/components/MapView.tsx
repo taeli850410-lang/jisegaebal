@@ -520,6 +520,109 @@ export default function MapView() {
     return () => el.removeEventListener('click', onClick)
   }, [])
 
+  /* ─────────────── 3-c. 두 손가락 확대·축소 ───────────────
+     카카오 SDK 에도 핀치가 있지만 이 빌드에서는 반응을 확인하지 못했다.
+     터치 기기에서 축소가 안 되면 지도를 쓸 수가 없으므로 직접 구현한다.
+
+     두 손가락이 닿는 동안에는 포인터 이벤트를 캡처 단계에서 붙잡아 둔다 —
+     SDK 가 같은 제스처를 드래그로 읽어 지도가 딸려 움직이거나,
+     SDK 도 핀치를 처리해 두 배로 확대되는 걸 막는다.
+     손가락 하나일 때는 건드리지 않는다. 그건 SDK 의 패닝이다. */
+  useEffect(() => {
+    if (!ready) return
+    const el = containerRef.current
+    if (!el) return
+
+    /*
+     * 포인터 이벤트가 아니라 터치 이벤트로 처리한다.
+     * 실제 기기는 손가락 하나에 pointer/touch 를 둘 다 쏘기 때문에,
+     * 포인터만 붙잡아 두면 SDK 는 터치로 같은 제스처를 또 받아 두 배로 확대된다.
+     * SDK 가 듣는 쪽(터치)을 그대로 가져와야 중복이 없다.
+     */
+    /** 이 거리에서 마지막으로 레벨을 바꿨다 */
+    let baseDist = 0
+    let pinching = false
+    /**
+     * 제스처가 도달해야 할 레벨.
+     *
+     * setLevel 직후 getLevel() 이 아직 옛 값을 주는 경우가 있어, 매번 지도에
+     * 물어보면 같은 목표를 반복 호출하고 한 칸에서 멈춘다(실제로 그랬다).
+     * 제스처 시작 때 한 번만 읽고 그 뒤로는 우리가 센다.
+     */
+    let target = 0
+
+    const spread = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+
+    const start = (e: TouchEvent) => {
+      if (e.touches.length < 2) return
+      pinching = true
+      baseDist = spread(e.touches)
+      target = mapRef.current?.getLevel() ?? 8
+      e.stopPropagation()
+    }
+
+    const move = (e: TouchEvent) => {
+      if (!pinching || e.touches.length < 2) return
+      e.stopPropagation()
+      if (e.cancelable) e.preventDefault()
+
+      const d = spread(e.touches)
+      if (!baseDist || !d) return
+      /*
+       * 카카오 레벨은 정수라 연속 배율을 그대로 못 쓴다.
+       * 손가락 간격이 √2 배로 벌어지거나 좁혀질 때마다 한 칸 옮기고
+       * 기준 거리를 다시 잡는다. (매 프레임 setLevel 을 부르면 지도가 덜덜 떤다)
+       */
+      const STEP = Math.SQRT2
+      const map = mapRef.current
+      if (!map) return
+      let delta = 0
+      if (d > baseDist * STEP) delta = -1 // 벌리면 확대 (레벨 감소)
+      else if (d < baseDist / STEP) delta = 1 // 모으면 축소
+      if (!delta) return
+
+      baseDist = d
+      const next = Math.min(14, Math.max(1, target + delta))
+      if (next === target) return
+      target = next
+
+      // 두 손가락 가운데를 고정점으로 — 잡은 곳이 그대로 있어야 조작이 예측된다
+      const box = el.getBoundingClientRect()
+      const anchor = map
+        .getProjection()
+        .coordsFromContainerPoint(
+          new window.kakao.maps.Point(
+            (e.touches[0].clientX + e.touches[1].clientX) / 2 - box.left,
+            (e.touches[0].clientY + e.touches[1].clientY) / 2 - box.top,
+          ),
+        )
+      map.setLevel(next, { anchor })
+    }
+
+    const end = (e: TouchEvent) => {
+      if (!pinching) return
+      // 한 손가락이 떨어져도 남은 손가락이 곧바로 지도를 끌지 않게 한다
+      e.stopPropagation()
+      if (e.touches.length < 2) {
+        pinching = false
+        baseDist = 0
+      } else {
+        baseDist = spread(e.touches)
+      }
+    }
+
+    el.addEventListener('touchstart', start, { capture: true, passive: false })
+    el.addEventListener('touchmove', move, { capture: true, passive: false })
+    el.addEventListener('touchend', end, { capture: true })
+    el.addEventListener('touchcancel', end, { capture: true })
+    return () => {
+      el.removeEventListener('touchstart', start, { capture: true })
+      el.removeEventListener('touchmove', move, { capture: true })
+      el.removeEventListener('touchend', end, { capture: true })
+      el.removeEventListener('touchcancel', end, { capture: true })
+    }
+  }, [ready])
+
   /* ─────────────── 3-b. 지역별 집계 배지 (축소 뷰) ─────────────── */
   useEffect(() => {
     if (!ready) return
@@ -1101,7 +1204,10 @@ export default function MapView() {
       </div>
 
       <main className="relative flex-1">
-        <div ref={containerRef} className="h-full w-full bg-gray-100" />
+        {/* touch-none 은 브라우저 기본 제스처(페이지 스크롤·핀치 확대)를 끄고
+            터치 이벤트를 전부 지도에 넘긴다. 이게 없으면 두 손가락을 벌릴 때
+            브라우저가 먼저 페이지를 확대해버려 지도 줌이 안 걸린다. */}
+        <div ref={containerRef} className="h-full w-full touch-none bg-gray-100" />
 
         {error && (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/95 p-8">
@@ -1324,14 +1430,14 @@ export default function MapView() {
           <button
             aria-label="확대"
             onClick={() => zoomBy(-1)}
-            className="h-9 w-9 border-b border-gray-100 text-lg text-gray-600 hover:bg-gray-50"
+            className="touch-target h-9 w-9 border-b border-gray-100 text-lg text-gray-600 hover:bg-gray-50"
           >
             +
           </button>
           <button
             aria-label="축소"
             onClick={() => zoomBy(1)}
-            className="h-9 w-9 border-b border-gray-100 text-lg text-gray-600 hover:bg-gray-50"
+            className="touch-target h-9 w-9 border-b border-gray-100 text-lg text-gray-600 hover:bg-gray-50"
           >
             −
           </button>
@@ -1344,7 +1450,7 @@ export default function MapView() {
                 ),
               )
             }
-            className="h-9 w-9 text-sm text-gray-600 hover:bg-gray-50"
+            className="touch-target h-9 w-9 text-sm text-gray-600 hover:bg-gray-50"
           >
             ◎
           </button>
