@@ -171,6 +171,8 @@ export default function MapView() {
   const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(false)
   const [parcelCount, setParcelCount] = useState(0)
+  /** 필지를 못 가져온 이유 — 조용히 비워두지 않고 화면에 밝힌다 */
+  const [parcelError, setParcelError] = useState<string | null>(null)
   const [aptCount, setAptCount] = useState(0)
   const [aptLoading, setAptLoading] = useState(false)
   const [dealCount, setDealCount] = useState(0)
@@ -673,7 +675,9 @@ export default function MapView() {
 
     try {
       const res = await fetch(`/api/parcels?bbox=${bbox}`)
-      const data: { parcels: Parcel[] } = await res.json()
+      const data: { parcels: Parcel[]; unavailable?: string } = await res.json()
+
+      setParcelError(data.unavailable ?? null)
 
       data.parcels.forEach((p) => {
         const fill = tools.aging && p.approvalYear ? agingColor(p.approvalYear) : '#000000'
@@ -690,8 +694,12 @@ export default function MapView() {
         kakao.maps.event.addListener(poly, 'click', () => {
           new kakao.maps.InfoWindow({
             content: `<div style="padding:8px 10px;font-size:12px;white-space:nowrap">
-                <b>${p.jibun}</b><br/>사용승인 ${p.approvalYear ?? '나대지'} · ${p.areaM2}㎡
-                <br/><span style="color:#999">필지는 목업 데이터입니다</span>
+                <b>${escapeHtml(p.jibun)}</b><br/>${p.areaM2.toLocaleString()}㎡${
+                  p.landPrice
+                    ? ` · 공시지가 ${Math.round(p.landPrice / 10000).toLocaleString()}만원/㎡`
+                    : ''
+                }
+                <br/><span style="color:#999">국토교통부 연속지적도</span>
               </div>`,
             position: new kakao.maps.LatLng(p.ring[0][1], p.ring[0][0]),
           }).open(map)
@@ -700,7 +708,9 @@ export default function MapView() {
       })
       setParcelCount(data.parcels.length)
     } catch {
-      /* 무시 */
+      // 네트워크 자체가 끊긴 경우도 조용히 넘기지 않는다
+      setParcelError('FETCH_FAILED')
+      setParcelCount(0)
     }
   }, [ready, tools.cadastral, tools.aging])
 
@@ -925,9 +935,22 @@ export default function MapView() {
     return subscribeStore(sync)
   }, [])
 
+  const parcelOn = tools.cadastral || tools.aging
   const parcelHint =
-    (tools.cadastral || tools.aging) && level > PARCEL_MAX_LEVEL
+    parcelOn && level > PARCEL_MAX_LEVEL
       ? `지적·노후도는 확대해야 표시됩니다 (현재 레벨 ${level} → ${PARCEL_MAX_LEVEL} 이하)`
+      : null
+
+  /**
+   * 필지를 못 가져왔을 때 띄우는 경고.
+   * 예전에는 격자 목업으로 대신 그렸는데, 가짜가 진짜처럼 보여서
+   * V-World 가 막힌 걸 오래 눈치채지 못했다. 이제는 대놓고 말한다.
+   */
+  const parcelErrorHint =
+    parcelOn && !parcelHint && parcelError
+      ? parcelError === 'NO_KEY'
+        ? '필지를 표시할 수 없습니다 — V-World 인증키가 설정되지 않았습니다.'
+        : '필지를 불러오지 못했습니다 — 국토교통부 연속지적도(V-World) 응답이 없습니다. 잠시 후 다시 시도해 주세요.'
       : null
 
   // 실거래·단지는 이제 실제로 그린다. 매물·경매만 아직 미연동이다.
@@ -1126,6 +1149,11 @@ export default function MapView() {
           {parcelHint && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 shadow-sm">
               {parcelHint}
+            </div>
+          )}
+          {parcelErrorHint && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs text-rose-800 shadow-sm">
+              {parcelErrorHint}
             </div>
           )}
           {dealHint && (
