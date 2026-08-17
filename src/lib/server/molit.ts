@@ -1,4 +1,4 @@
-import { SEOUL_LAWD } from './lawdCodes'
+﻿import { SEOUL_LAWD } from './lawdCodes'
 
 /**
  * 국토교통부 실거래가 조회 (서버 전용).
@@ -48,6 +48,8 @@ export interface Transaction {
   pricePerLandPyeong: number | null
   pricePerExclusivePyeong: number | null
   isDirect: boolean
+  /** 등기일자 존재 여부 */
+  registered: boolean
 }
 
 function pick(xml: string, tag: string): string | null {
@@ -103,6 +105,8 @@ function parseItems(xml: string, kind: Kind): Transaction[] {
         pricePerLandPyeong: landPyeong ? Math.round(price / landPyeong) : null,
         pricePerExclusivePyeong: exclPyeong ? Math.round(price / exclPyeong) : null,
         isDirect: (pick(b, 'dealingGbn') ?? '').includes('직거래'),
+        // 등기일자가 찍혀 있으면 소유권 이전까지 끝난 거래다 — 해제 가능성이 사실상 없다
+        registered: !!(pick(b, 'rgstDate') ?? '').trim(),
       },
     ]
   })

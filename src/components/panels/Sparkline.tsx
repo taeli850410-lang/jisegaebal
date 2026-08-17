@@ -1,10 +1,15 @@
 'use client'
 
-/** 구역 카드용 미니 추이 차트 — 값이 없는 달은 선을 잇지 않고 건너뛴다 */
+/**
+ * 구역 카드용 추이 차트 — 값이 없는 달은 선을 잇지 않고 건너뛴다.
+ *
+ * 벤치마크처럼 선 아래를 옅게 채운다. 폭이 좁아 눈금을 못 넣는 대신
+ * 면적으로 "얼마나 올랐나"가 먼저 읽히게 하려는 것이다.
+ */
 export default function Sparkline({
   series,
-  width = 120,
-  height = 34,
+  width = 150,
+  height = 46,
 }: {
   series: { ym: string; value: number | null }[]
   width?: number
@@ -47,8 +52,20 @@ export default function Sparkline({
 
   const last = [...pts].reverse().find(Boolean) as [number, number] | undefined
 
+  // 가장 긴 구간만 면적으로 채운다 — 끊긴 구간까지 채우면 없는 값을 있는 것처럼 보인다
+  const longest = segments.reduce((a, b) => (b.length > a.length ? b : a), '')
+  const areaPath = longest
+    ? (() => {
+        const ps = longest.split(' ').map((s) => s.split(',').map(Number))
+        const x0 = ps[0][0]
+        const x1 = ps[ps.length - 1][0]
+        return `M${x0},${height} L${ps.map((p) => `${p[0]},${p[1]}`).join(' L')} L${x1},${height} Z`
+      })()
+    : null
+
   return (
     <svg width={width} height={height} className="overflow-visible">
+      {areaPath && <path d={areaPath} fill="#6366F1" fillOpacity={0.12} />}
       {segments.map((s, i) => (
         <polyline
           key={i}
@@ -60,7 +77,7 @@ export default function Sparkline({
           strokeLinecap="round"
         />
       ))}
-      {last && <circle cx={last[0]} cy={last[1]} r={2.4} fill="#4F46E5" />}
+      {last && <circle cx={last[0]} cy={last[1]} r={2.6} fill="#4F46E5" />}
     </svg>
   )
 }

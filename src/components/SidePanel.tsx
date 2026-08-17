@@ -6,6 +6,9 @@ import ZoneDealCard, { type ZoneDeals } from './panels/ZoneDealCard'
 import HotPanel from './panels/HotPanel'
 import { Empty, PanelHint, RankRow, StageBadge, TypeBadge, type DevelopBrief } from './panels/shared'
 
+/** 지역 선택에서 서울 전체를 가리키는 값 (HotPanel 과 같은 규칙) */
+const ALL_GU = 'all'
+
 export type PanelKey = 'hot' | 'favorites' | 'new' | 'transactions' | 'listings' | 'auctions'
 export type { DevelopBrief }
 
@@ -100,19 +103,52 @@ export default function SidePanel({
     }
     let cancelled = false
     setZdLoading(true)
-    fetch(`/api/zone-transactions?gu=${encodeURIComponent(gu)}&days=${days}`)
-      .then((r) => r.json())
+
+    const one = (g: string) =>
+      fetch(`/api/zone-transactions?gu=${encodeURIComponent(g)}&days=${days}`)
+        .then((r) => r.json())
+        .catch(() => ({ zones: [], matchedDeals: 0, fetchedDeals: 0 }))
+
+    /*
+     * 서울 전체는 구별로 나눠 부른다.
+     * 서버에서 25개 구를 한 번에 돌면 함수 시간 한도를 넘고(FUNCTION_INVOCATION_TIMEOUT),
+     * 구를 따로 볼 때 만들어둔 캐시도 못 쓴다.
+     */
+    if (gu === ALL_GU) {
+      const names = gus.map((g) => g.gu)
+      const acc: ZoneDeals[] = []
+      let matched = 0
+      let fetched = 0
+      ;(async () => {
+        for (let i = 0; i < names.length && !cancelled; i += 5) {
+          const part = await Promise.all(names.slice(i, i + 5).map(one))
+          if (cancelled) return
+          for (const j of part) {
+            acc.push(...((j.zones ?? []) as ZoneDeals[]))
+            matched += j.matchedDeals ?? 0
+            fetched += j.fetchedDeals ?? 0
+          }
+          setZoneDeals([...acc].sort((a, b) => b.dealCount - a.dealCount))
+          setZdMeta({ matched, fetched })
+        }
+        if (!cancelled) setZdLoading(false)
+      })()
+      return () => {
+        cancelled = true
+      }
+    }
+
+    one(gu)
       .then((j) => {
         if (cancelled) return
         setZoneDeals(j.zones ?? [])
         setZdMeta({ matched: j.matchedDeals ?? 0, fetched: j.fetchedDeals ?? 0 })
       })
-      .catch(() => !cancelled && setZoneDeals([]))
       .finally(() => !cancelled && setZdLoading(false))
     return () => {
       cancelled = true
     }
-  }, [panel, gu, days])
+  }, [panel, gu, days, gus])
 
   /* 신규 · 관심 · 인기(조회순) */
   useEffect(() => {
@@ -159,6 +195,7 @@ export default function SidePanel({
       className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
     >
       <option value="">구/군 선택</option>
+      {panel === 'transactions' && <option value={ALL_GU}>서울 전체</option>}
       {gus.map((g) => (
         <option key={g.gu} value={g.gu}>
           {g.gu} ({g.count})
@@ -241,7 +278,7 @@ export default function SidePanel({
           </div>
           {gu && (
             <div className="mt-2.5 flex items-center justify-between">
-              <p className="text-sm font-bold">{gu} 실거래</p>
+              <p className="text-sm font-bold">{gu === ALL_GU ? '서울 전체' : gu} 실거래</p>
               <div className="flex gap-1">
                 {([7, 30] as const).map((d) => (
                   <button

@@ -24,6 +24,7 @@ export interface ZoneDeals {
     landPyeong: number | null
     pricePerLandPyeong: number | null
     isDirect: boolean
+    registered?: boolean
   }[]
   dealCount: number
   medianPerPyeong: number | null
@@ -67,7 +68,7 @@ export default function ZoneDealCard({
 
         <div className="shrink-0 text-right">
           <Sparkline series={zone.series} />
-          <p className="text-[11px] font-bold text-gray-700">
+          <p className="text-[12px] font-bold text-gray-800">
             {zone.medianPerPyeong ? `${formatPerPyeong(zone.medianPerPyeong)}/평` : '—'}
           </p>
           <p
@@ -75,7 +76,7 @@ export default function ZoneDealCard({
               flat ? 'text-gray-400' : up ? 'text-rose-500' : 'text-blue-500'
             }`}
           >
-            {flat ? '직전대비 —' : `직전대비 ${up ? '↑' : '↓'} ${Math.abs(zone.changePct!)}%`}
+            {flat ? '전월대비 —' : `전월대비 ${up ? '↑' : '↓'} ${Math.abs(zone.changePct!)}%`}
           </p>
         </div>
       </div>
@@ -114,6 +115,12 @@ export default function ZoneDealCard({
                 {d.isDirect && (
                   <span className="mr-1 rounded bg-amber-100 px-1 text-[9px] font-bold text-amber-700">
                     직
+                  </span>
+                )}
+                {/* 등기일자가 찍혔으면 소유권 이전까지 끝난 거래다 */}
+                {d.registered && (
+                  <span className="mr-1 rounded bg-gray-100 px-1 text-[9px] font-bold text-gray-500">
+                    등기
                   </span>
                 )}
                 <span className="font-bold text-gray-800">{formatEok(d.price)}</span>
