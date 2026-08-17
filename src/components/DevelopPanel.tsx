@@ -440,7 +440,16 @@ export default function DevelopPanel({
   const [loading, setLoading] = useState(true)
   const [fav, setFav] = useState(false)
   const [showAllDeals, setShowAllDeals] = useState(false)
-  const [simOpen, setSimOpen] = useState(false)
+  /**
+   * 공유 링크(?zone=…&sim=…)로 들어오면 시뮬레이터를 펼친 채 시작한다.
+   * 링크를 받은 사람이 패널을 뒤져 시뮬레이터를 찾아 들어가야 한다면
+   * 공유가 아니라 안내에 가깝다.
+   */
+  const [simOpen, setSimOpen] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const p = new URLSearchParams(window.location.search)
+    return p.get('zone') === develop.id && !!p.get('sim')
+  })
   const [reportOpen, setReportOpen] = useState(false)
   const [cardOpen, setCardOpen] = useState(false)
   const [news, setNews] = useState<NewsItem[] | null>(null)
@@ -2061,6 +2070,7 @@ export default function DevelopPanel({
 
       {simOpen && (
         <BurdenSimulator
+          zoneId={z.id}
           zoneName={z.name}
           zoneLandPricePerPyeong={data?.medianPerPyeong ?? null}
           nearbyTopPricePerPyeong={nearbyTopPpp}

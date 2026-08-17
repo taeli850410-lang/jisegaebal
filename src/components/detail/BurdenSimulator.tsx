@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   SCENARIO_LABEL,
   calcScenarios,
@@ -8,6 +8,15 @@ import {
   type BurdenInput,
   type ScenarioKey,
 } from '@/lib/burden'
+import {
+  decodeBurden,
+  getSaved,
+  removeBurden,
+  saveBurden,
+  shareUrl,
+  type BurdenState,
+  type SavedBurden,
+} from '@/lib/burdenShare'
 
 const 억 = 100_000_000
 const 만 = 10_000
@@ -85,11 +94,13 @@ function NumField({
 }
 
 export default function BurdenSimulator({
+  zoneId,
   zoneName,
   zoneLandPricePerPyeong,
   nearbyTopPricePerPyeong,
   onClose,
 }: {
+  zoneId: string
   zoneName: string
   /** 구역 대지평당가 중앙값 — 감정가 추정의 기준 */
   zoneLandPricePerPyeong: number | null
@@ -111,6 +122,53 @@ export default function BurdenSimulator({
   const [otherCosts, setOtherCosts] = useState(0)
   const [expectedPpp, setExpectedPpp] = useState(newPpp)
   const [manualAppraisal, setManualAppraisal] = useState<number | null>(null)
+
+  /* ── 저장·공유 ── */
+  const [saved, setSaved] = useState<SavedBurden[]>([])
+  const [saveName, setSaveName] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  const state: BurdenState = {
+    landShare,
+    appraisalRate,
+    purchasePrice,
+    bijul,
+    memberPpp,
+    targetPyeong,
+    taxRate,
+    financeCost,
+    otherCosts,
+    expectedPpp,
+    manualAppraisal,
+  }
+
+  /** 저장본이나 링크에서 읽은 값을 화면에 되돌린다 */
+  const apply = (s: Partial<BurdenState>) => {
+    if (s.landShare !== undefined) setLandShare(s.landShare)
+    if (s.appraisalRate !== undefined) setAppraisalRate(s.appraisalRate)
+    if (s.purchasePrice !== undefined) setPurchasePrice(s.purchasePrice)
+    if (s.bijul !== undefined) setBijul(s.bijul)
+    if (s.memberPpp !== undefined) setMemberPpp(s.memberPpp)
+    if (s.targetPyeong !== undefined) setTargetPyeong(s.targetPyeong)
+    if (s.taxRate !== undefined) setTaxRate(s.taxRate)
+    if (s.financeCost !== undefined) setFinanceCost(s.financeCost)
+    if (s.otherCosts !== undefined) setOtherCosts(s.otherCosts)
+    if (s.expectedPpp !== undefined) setExpectedPpp(s.expectedPpp)
+    // manualAppraisal 은 "안 넣음"이 곧 의미(추정치 사용)라 undefined 와 null 을 구분한다
+    setManualAppraisal(s.manualAppraisal ?? null)
+  }
+
+  /* 링크로 열렸으면 그 값으로 시작한다 */
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    if (p.get('zone') !== zoneId) return
+    const s = decodeBurden(p.get('sim'))
+    if (s) apply(s)
+    // 한 번만 — 이후 사용자가 만진 값을 URL 이 되돌리면 안 된다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoneId])
+
+  useEffect(() => setSaved(getSaved(zoneId)), [zoneId])
 
   const estimated = estimateAppraisal(landShare, landPpp, appraisalRate)
   const appraisalPrice = manualAppraisal ?? estimated
@@ -273,6 +331,84 @@ export default function BurdenSimulator({
           <EokField label="이주비 이자 등" value={financeCost} onChange={setFinanceCost} />
           <EokField label="기타 비용" value={otherCosts} onChange={setOtherCosts} />
         </div>
+
+        {/* ── 저장·공유 ──
+            계산이 순전히 입력의 함수라 서버에 둘 게 없다. 링크 하나가 곧 저장본이다. */}
+        <h3 className="panel-sub">저장 · 공유</h3>
+
+        <div className="flex gap-2">
+          <input
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            placeholder="조건 이름 (예: 25평 보수적)"
+            className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-2 text-sm outline-none focus:border-indigo-500"
+          />
+          <button
+            onClick={() => {
+              saveBurden(zoneId, zoneName, saveName, state, Date.now())
+              setSaved(getSaved(zoneId))
+              setSaveName('')
+            }}
+            className="shrink-0 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-bold text-white hover:bg-indigo-700"
+          >
+            저장
+          </button>
+        </div>
+
+        <button
+          onClick={async () => {
+            const url = shareUrl(zoneId, state)
+            try {
+              await navigator.clipboard.writeText(url)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 2000)
+            } catch {
+              // 클립보드 권한이 없으면 주소창에 올려 사용자가 직접 복사하게 둔다
+              window.prompt('아래 주소를 복사하세요', url)
+            }
+          }}
+          className="mt-2 w-full rounded-lg border border-indigo-200 bg-indigo-50 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-100"
+        >
+          {copied ? '복사했습니다 ✓' : '공유 링크 복사'}
+        </button>
+        <p className="mt-1.5 text-[10px] leading-relaxed text-gray-400">
+          입력값이 주소에 그대로 담깁니다. 링크를 받은 사람은 같은 조건의 계산을 바로 보게 됩니다
+          — 서버에 저장되는 것은 없습니다.
+        </p>
+
+        {saved.length > 0 && (
+          <ul className="mt-3 divide-y divide-gray-100 rounded-lg border border-gray-200">
+            {saved.map((s) => (
+              <li key={s.id} className="flex items-center gap-2 px-3 py-2">
+                <button
+                  onClick={() => apply(s.state)}
+                  className="min-w-0 flex-1 text-left"
+                  title="이 조건 불러오기"
+                >
+                  <span className="block truncate text-[13px] font-bold">{s.name}</span>
+                  <span className="block text-[10px] text-gray-400">
+                    {new Date(s.savedAt).toLocaleString('ko-KR', {
+                      month: 'numeric',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </button>
+                <button
+                  onClick={() => {
+                    removeBurden(s.id)
+                    setSaved(getSaved(zoneId))
+                  }}
+                  aria-label={`${s.name} 삭제`}
+                  className="shrink-0 rounded p-1 text-gray-300 hover:bg-gray-100 hover:text-rose-500"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
 
         <div className="mt-5 rounded-lg bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-900">
           ⚠️ 본 계산은 <b>사용자가 입력한 가정치</b> 기반 참고용이며, 조합이 확정한 값과 다를 수

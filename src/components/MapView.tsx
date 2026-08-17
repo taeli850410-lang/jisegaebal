@@ -188,7 +188,14 @@ export default function MapView() {
   const [withStage, setWithStage] = useState(0)
   const [legendOpen, setLegendOpen] = useState(false)
   const [panel, setPanel] = useState<PanelKey | null>(null)
-  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null)
+  /**
+   * ?zone=… 으로 들어오면 그 구역을 열고 시작한다.
+   * 분담금 시뮬레이터 공유 링크가 이 경로를 탄다.
+   */
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    return new URLSearchParams(window.location.search).get('zone')
+  })
   const [favCount, setFavCount] = useState(0)
   const [roadviewMiss, setRoadviewMiss] = useState(false)
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
