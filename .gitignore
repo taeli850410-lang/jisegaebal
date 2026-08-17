@@ -44,3 +44,5 @@ data/building-index.json
 .claude/*.csv
 
 data/semi-basement-pks.json
+
+data/house-price-cache.json

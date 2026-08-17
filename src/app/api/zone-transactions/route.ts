@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { getAllDevelops } from '@/lib/server/developStore'
 import { fetchTransactions, median, type Kind, type Transaction } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
+import { attachPublicPrices } from '@/lib/server/housePrice'
 import { outerRings } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
@@ -39,8 +40,8 @@ export interface ZoneTransactions {
   stage: string | null
   canonicalStage: string | null
   bbox: [number, number, number, number]
-  /** 선택 기간 내 거래 */
-  deals: Transaction[]
+  /** 선택 기간 내 거래 (화면에 보이는 건에는 공시가격이 붙는다) */
+  deals: (Transaction & { publicPrice?: number | null })[]
   dealCount: number
   /** 기간 내 대지평당가 중앙값 */
   medianPerPyeong: number | null
@@ -122,6 +123,9 @@ async function computeForGu(
     const cur = median(priceable.map((d) => d.pricePerLandPyeong!))
     const prev = median(prevPeriod.map((d) => d.pricePerLandPyeong ?? NaN))
 
+    // 화면에 보이는 건에만 공주가를 붙인다 (지번 캐시라 재조회는 거의 없다)
+    const shown = await attachPublicPrices(gu, inPeriod.slice(0, 20))
+
     result.push({
       id: z.id,
       name: z.name,
@@ -130,7 +134,7 @@ async function computeForGu(
       stage: z.stage ?? null,
       canonicalStage: z.canonicalStage ?? null,
       bbox: z.bbox,
-      deals: inPeriod.slice(0, 20),
+      deals: shown,
       dealCount: inPeriod.length,
       medianPerPyeong: cur,
       priceSampleCount: priceable.length,

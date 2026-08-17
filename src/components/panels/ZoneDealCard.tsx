@@ -25,6 +25,8 @@ export interface ZoneDeals {
     pricePerLandPyeong: number | null
     isDirect: boolean
     registered?: boolean
+    /** 공동주택 공시가격 — 같은 지번에서 전용면적이 가장 가까운 호 */
+    publicPrice?: number | null
   }[]
   dealCount: number
   medianPerPyeong: number | null
@@ -124,6 +126,10 @@ export default function ZoneDealCard({
                   </span>
                 )}
                 <span className="font-bold text-gray-800">{formatEok(d.price)}</span>
+                {/* 공시가격 — 거래가와 비교하면 얼마나 웃돈이 붙었는지 보인다 */}
+                {d.publicPrice != null && (
+                  <div className="text-[10px] text-gray-400">공주가 {formatEok(d.publicPrice)}</div>
+                )}
               </td>
               <td className="py-1.5 pr-3 text-right whitespace-nowrap">
                 {d.pricePerLandPyeong && (
