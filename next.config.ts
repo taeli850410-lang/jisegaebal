@@ -33,6 +33,12 @@ const nextConfig: NextConfig = {
     '/api/parcels': ['./data/develops.seoul.json', './data/stages.seoul.json', './data/zone-summary.json', './data/zone-progress.json'],
     // 단지 마커는 지번 좌표 캐시만 있으면 된다 (구역 데이터는 안 쓴다)
     '/api/apt-markers': ['./data/jibun-cache.json'],
+    // 개별 실거래 마커는 구역 경계로 안팎을 가르므로 구역 데이터도 필요하다
+    '/api/deal-markers': [
+      './data/jibun-cache.json',
+      './data/develops.seoul.json',
+      './data/stages.seoul.json',
+    ],
     '/api/zone-transactions': [
       './data/house-price-cache.json',
       './data/develops.seoul.json',

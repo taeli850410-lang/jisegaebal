@@ -112,6 +112,41 @@ body {
   }
 }
 
+/* ── 개별 실거래 마커 ─────────────────────────────────
+   "실거래 / 6.9억" 두 줄. 글자색은 그 거래가 속한 구역의 진행단계 색이라
+   흰 바탕에 색 글씨로 둔다 — 단지 마커(색 바탕)와 한눈에 구분된다. */
+.deal-price {
+  position: relative;
+  transform: translate(-50%, 0);
+  white-space: nowrap;
+  padding: 2px 7px 3px;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  letter-spacing: -0.02em;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+  pointer-events: none;
+}
+.deal-price__cap {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 700;
+  opacity: 0.7;
+}
+.deal-price::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  margin-left: -3px;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid #fff;
+}
+
 /* ── 아파트 단지 시세 마커 ────────────────────────────
    벤치마크처럼 "84 17억" 한 줄. 아래에 꼬리를 달아 단지 위치를 가리킨다. */
 .apt-price {

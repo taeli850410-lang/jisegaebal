@@ -75,6 +75,23 @@ const STAGE_FONT = '700 11px system-ui, sans-serif'
 const QUIET_FONT = '700 11px system-ui, sans-serif'
 const CLUSTER_FONT = '700 12px system-ui, sans-serif'
 const APT_FONT = '700 11px system-ui, sans-serif'
+const DEAL_FONT = '800 12px system-ui, sans-serif'
+
+/** 개별 실거래 마커를 그리는 줌 — 지번 단위라 라벨이 촘촘하다 */
+const DEAL_MAX_LEVEL = 5
+
+interface DealMarker {
+  lng: number
+  lat: number
+  price: number
+  typeLabel: string
+  dealDate: string
+  dong: string
+  jibun: string
+  count: number
+  zoneId: string | null
+  canonicalStage: string | null
+}
 
 /** 단지 마커를 그리는 줌 — 이보다 축소하면 라벨이 지도를 덮는다 */
 const APT_MAX_LEVEL = 5
@@ -119,6 +136,7 @@ export default function MapView() {
   const labelsRef = useRef<any[]>([])
   const clusterOverlaysRef = useRef<any[]>([])
   const aptOverlaysRef = useRef<any[]>([])
+  const dealOverlaysRef = useRef<any[]>([])
   const parcelPolysRef = useRef<any[]>([])
   const roadviewOverlayRef = useRef<any>(null)
   const roadviewInstanceRef = useRef<any>(null)
@@ -155,6 +173,8 @@ export default function MapView() {
   const [parcelCount, setParcelCount] = useState(0)
   const [aptCount, setAptCount] = useState(0)
   const [aptLoading, setAptLoading] = useState(false)
+  const [dealCount, setDealCount] = useState(0)
+  const [dealLoading, setDealLoading] = useState(false)
   const [rulerDistance, setRulerDistance] = useState<number | null>(null)
   const [virtualZone, setVirtualZone] = useState<{ area: number; points: number } | null>(null)
   const [selected, setSelected] = useState<ApiDevelop | null>(null)
@@ -559,6 +579,80 @@ export default function MapView() {
     }
   }, [ready, layers.apartments, level, develops])
 
+  /* ─────────────── 3-d. 개별 실거래 마커 ─────────────── */
+  useEffect(() => {
+    if (!ready) return
+    const kakao = window.kakao
+    const map = mapRef.current
+
+    dealOverlaysRef.current.forEach((o) => o.setMap(null))
+    dealOverlaysRef.current = []
+
+    if (!layers.transactions || level > DEAL_MAX_LEVEL) {
+      setDealCount(0)
+      return
+    }
+
+    let cancelled = false
+    const b = map.getBounds()
+    const sw = b.getSouthWest()
+    const ne = b.getNorthEast()
+    const bbox = [sw.getLng(), sw.getLat(), ne.getLng(), ne.getLat()].join(',')
+
+    setDealLoading(true)
+    fetch(`/api/deal-markers?bbox=${bbox}&months=12`)
+      .then((r) => r.json())
+      .then((j: { markers?: DealMarker[] }) => {
+        if (cancelled) return
+        const projection = map.getProjection()
+        const placed: { l: number; t: number; r: number; b: number }[] = []
+        const GAP = 2
+        let shown = 0
+
+        for (const m of j.markers ?? []) {
+          const pos = new kakao.maps.LatLng(m.lat, m.lng)
+          const pt = projection.containerPointFromCoords(pos)
+          const price = eokLabel(m.price)
+          const w = Math.max(textWidth(price, DEAL_FONT) + 16, 46)
+          const h = 30
+          const box = {
+            l: pt.x - w / 2 - GAP,
+            t: pt.y - h - GAP,
+            r: pt.x + w / 2 + GAP,
+            b: pt.y + GAP,
+          }
+          if (placed.some((p) => !(box.r <= p.l || p.r <= box.l || box.b <= p.t || p.b <= box.t))) {
+            continue
+          }
+          placed.push(box)
+          shown++
+
+          // 구역 안 거래는 그 구역의 진행단계 색, 구역 밖은 회색
+          const color = m.zoneId ? stageColor(m.canonicalStage) : '#94A3B8'
+          const overlay = new kakao.maps.CustomOverlay({
+            map,
+            position: pos,
+            yAnchor: 1,
+            zIndex: 4,
+            clickable: false,
+            content:
+              `<div class="deal-price" style="color:${color}" title="${escapeHtml(
+                `${m.dong} ${m.jibun} · ${m.typeLabel} · ${m.dealDate}${m.count > 1 ? ` · ${m.count}건` : ''}`,
+              )}">` +
+              `<span class="deal-price__cap">실거래</span>${escapeHtml(price)}</div>`,
+          })
+          dealOverlaysRef.current.push(overlay)
+        }
+        setDealCount(shown)
+      })
+      .catch(() => !cancelled && setDealCount(0))
+      .finally(() => !cancelled && setDealLoading(false))
+
+    return () => {
+      cancelled = true
+    }
+  }, [ready, layers.transactions, level, develops])
+
   /* ─────────────── 4. 필지(지적도·노후도) ─────────────── */
   const drawParcels = useCallback(async () => {
     if (!ready) return
@@ -836,8 +930,16 @@ export default function MapView() {
       ? `지적·노후도는 확대해야 표시됩니다 (현재 레벨 ${level} → ${PARCEL_MAX_LEVEL} 이하)`
       : null
 
-  // 단지는 이제 실제로 그린다. 나머지 셋만 아직 미연동이다.
-  const unavailableLayer = layers.transactions || layers.listings || layers.auctions
+  // 실거래·단지는 이제 실제로 그린다. 매물·경매만 아직 미연동이다.
+  const unavailableLayer = layers.listings || layers.auctions
+
+  const dealHint = layers.transactions
+    ? level > DEAL_MAX_LEVEL
+      ? `실거래는 확대해야 표시됩니다 (현재 레벨 ${level} → ${DEAL_MAX_LEVEL} 이하)`
+      : dealLoading
+        ? '실거래 불러오는 중…'
+        : `실거래 ${dealCount}건 · 최근 12개월 다세대·단독·토지`
+    : null
 
   const aptHint = layers.apartments
     ? level > APT_MAX_LEVEL
@@ -1026,6 +1128,11 @@ export default function MapView() {
               {parcelHint}
             </div>
           )}
+          {dealHint && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800 shadow-sm">
+              {dealHint}
+            </div>
+          )}
           {aptHint && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800 shadow-sm">
               {aptHint}
@@ -1033,7 +1140,7 @@ export default function MapView() {
           )}
           {unavailableLayer && (
             <div className="rounded-lg border border-gray-200 bg-white/95 px-3 py-1.5 text-xs text-gray-600 shadow-sm">
-              실거래·매물·경매 레이어는 아직 <b>미연동</b>입니다 (중개 제휴·법원경매 연동 필요)
+              매물·경매 레이어는 아직 <b>미연동</b>입니다 (중개 제휴·법원경매 연동 필요)
             </div>
           )}
           {rulerDistance !== null && (
