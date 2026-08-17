@@ -4,7 +4,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { getFavorites, getViews, subscribeStore } from '@/lib/userStore'
 import ZoneDealCard, { type ZoneDeals } from './panels/ZoneDealCard'
 import HotPanel from './panels/HotPanel'
-import { Empty, PanelHint, RankRow, StageBadge, TypeBadge, type DevelopBrief } from './panels/shared'
+import {
+  Empty,
+  PanelHint,
+  RankRow,
+  StageBadge,
+  TypeBadge,
+  areaLabel,
+  type DevelopBrief,
+} from './panels/shared'
 
 /** 지역 선택에서 서울 전체를 가리키는 값 (HotPanel 과 같은 규칙) */
 const ALL_GU = 'all'
@@ -347,7 +355,7 @@ export default function SidePanel({
                   </div>
                 </div>
                 <span className="shrink-0 text-[11px] text-gray-400">
-                  {Math.round(d.areaM2 / 3.3058).toLocaleString()}평
+                  {areaLabel(d)}
                 </span>
                 <span className="shrink-0 text-gray-300">›</span>
               </button>

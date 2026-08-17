@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadKakaoMaps } from '@/lib/kakaoLoader'
 import { PROJECT_TYPE_MAP, STAGES, UNKNOWN_STAGE_COLOR, stageColor } from '@/lib/taxonomy'
 import { agingColor, escapeHtml, labelPoint, shortName } from '@/lib/geo'
-import { outerRings, type ApiDevelop, type DevelopsResponse } from '@/lib/types'
+import { outerRings, type ApiDevelop, type ApiSite, type DevelopsResponse } from '@/lib/types'
 import type { Parcel } from '@/app/api/parcels/route'
 import FilterBar from './FilterBar'
 import { LayerToggles, ToolPanel, type LayerState, type ToolState } from './MapToolbar'
@@ -76,6 +76,7 @@ const QUIET_FONT = '700 11px system-ui, sans-serif'
 const CLUSTER_FONT = '700 12px system-ui, sans-serif'
 const APT_FONT = '700 11px system-ui, sans-serif'
 const DEAL_FONT = '800 12px system-ui, sans-serif'
+const SITE_FONT = '700 11px system-ui, sans-serif'
 
 /** 개별 실거래 마커를 그리는 줌 — 지번 단위라 라벨이 촘촘하다 */
 const DEAL_MAX_LEVEL = 5
@@ -137,6 +138,7 @@ export default function MapView() {
   const clusterOverlaysRef = useRef<any[]>([])
   const aptOverlaysRef = useRef<any[]>([])
   const dealOverlaysRef = useRef<any[]>([])
+  const siteOverlaysRef = useRef<any[]>([])
   const parcelPolysRef = useRef<any[]>([])
   const roadviewOverlayRef = useRef<any>(null)
   const roadviewInstanceRef = useRef<any>(null)
@@ -166,6 +168,8 @@ export default function MapView() {
 
   const [level, setLevel] = useState(INITIAL_LEVEL)
   const [develops, setDevelops] = useState<ApiDevelop[]>([])
+  /** 경계가 없어 점으로만 찍는 사업장 (가로주택·소규모·지역주택·리모델링) */
+  const [sites, setSites] = useState<ApiSite[]>([])
   const [clusters, setClusters] = useState<Cluster[]>([])
   const [totalInView, setTotalInView] = useState(0)
   const [truncated, setTruncated] = useState(false)
@@ -271,6 +275,7 @@ export default function MapView() {
         if (sig !== filterSigRef.current) return
         setClusters(data.clusters ?? [])
         setDevelops([])
+        setSites([])
         setTotalInView(data.total ?? 0)
         setTruncated(false)
         setWithStage((data.clusters ?? []).reduce((s, c) => s + c.withStage, 0))
@@ -285,6 +290,7 @@ export default function MapView() {
       if (sig !== filterSigRef.current) return
       setClusters([])
       setDevelops(data.develops ?? [])
+      setSites(data.sites ?? [])
       setTotalInView(data.total ?? 0)
       setTruncated(!!data.truncated)
       setWithStage(data.withStage ?? 0)
@@ -441,6 +447,78 @@ export default function MapView() {
       }
     })
   }, [ready, develops, level])
+
+  /* ─────────────── 3-a. 경계 없는 사업장 (점 핀) ───────────────
+     가로주택·소규모재건축·지역주택·리모델링은 정비구역 고시가 없어
+     경계 데이터 자체가 존재하지 않는다. 대표지번 위치에 핀으로 찍는다.
+     경계가 있는 구역(폴리곤)과 섞이지 않도록 모양을 다르게 둔다 —
+     폴리곤은 면, 이건 꼬리 달린 핀. */
+  useEffect(() => {
+    if (!ready) return
+    const kakao = window.kakao
+    const map = mapRef.current
+
+    siteOverlaysRef.current.forEach((o) => o.setMap(null))
+    siteOverlaysRef.current = []
+    if (!sites.length) return
+
+    const projection = map.getProjection()
+    const placed: { l: number; t: number; r: number; b: number }[] = []
+    const GAP = 3
+    // 확대할수록 이름을 길게 보여준다. 멀리서는 유형 배지만 남긴다.
+    const withName = level <= 3
+
+    for (const s of sites) {
+      const pos = new kakao.maps.LatLng(s.center[1], s.center[0])
+      const pt = projection.containerPointFromCoords(pos)
+      const type = PROJECT_TYPE_MAP.get(s.projectType)
+      const label = withName ? shortName(s.name, 12) : (type?.short ?? '')
+      const w = Math.max(textWidth(label, SITE_FONT) + 22, 34)
+      const h = withName ? 34 : 22
+      const box = { l: pt.x - w / 2 - GAP, t: pt.y - h - GAP, r: pt.x + w / 2 + GAP, b: pt.y + GAP }
+      if (placed.some((p) => !(box.r <= p.l || p.r <= box.l || box.b <= p.t || p.b <= box.t))) {
+        continue
+      }
+      placed.push(box)
+
+      const color = stageColor(s.canonicalStage)
+      const overlay = new kakao.maps.CustomOverlay({
+        map,
+        position: pos,
+        yAnchor: 1,
+        zIndex: 3,
+        // clickable 을 안 켜면 카카오가 오버레이를 이벤트 투명하게 만들어
+        // 클릭이 지도로 새어 나간다 (라벨과 달리 이건 눌러야 하는 마커다)
+        clickable: true,
+        content:
+          `<div class="site-pin" data-site="${escapeHtml(s.id)}" style="--pin:${color}" title="${escapeHtml(
+            `${s.name} · ${s.bizType}${s.stage ? ` · ${s.stage}` : ''} · ${s.gu} ${s.jibun}${
+              s.precision === 'near' ? ' (위치 근사)' : ''
+            }`,
+          )}">` +
+          `<span class="site-pin__type">${escapeHtml(type?.short ?? s.bizType)}</span>` +
+          (withName ? `<span class="site-pin__name">${escapeHtml(shortName(s.name, 12))}</span>` : '') +
+          `</div>`,
+      })
+      siteOverlaysRef.current.push(overlay)
+    }
+  }, [ready, sites, level])
+
+  /* 핀 클릭 — 오버레이마다 리스너를 걸면 getNode() 가 아직 붙기 전이라 놓친다.
+     지도 컨테이너에 하나만 걸고 data-site 로 어느 사업장인지 읽는다. */
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onClick = (e: MouseEvent) => {
+      const pin = (e.target as HTMLElement | null)?.closest?.('.site-pin') as HTMLElement | null
+      const id = pin?.dataset.site
+      if (!id) return
+      e.stopPropagation()
+      setPendingSelectId(id)
+    }
+    el.addEventListener('click', onClick)
+    return () => el.removeEventListener('click', onClick)
+  }, [])
 
   /* ─────────────── 3-b. 지역별 집계 배지 (축소 뷰) ─────────────── */
   useEffect(() => {

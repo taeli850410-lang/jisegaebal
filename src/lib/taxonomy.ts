@@ -36,7 +36,10 @@ export const PROJECT_TYPES: ProjectType[] = [
   // 소규모
   { code: 'moa', label: '모아타운', short: '모아', group: '소규모', color: '#F59F00' },
   { code: 'garo', label: '가로주택', short: '가로', group: '소규모', color: '#F76707' },
-  { code: 'small_rebuild', label: '소규모', short: '소규모', group: '소규모', color: '#E8590C' },
+  { code: 'small_rebuild', label: '소규모재건축', short: '소규모', group: '소규모', color: '#E8590C' },
+  { code: 'small_redev', label: '소규모재개발', short: '소규모', group: '소규모', color: '#D9480F' },
+  // 정비사업은 아니지만 정비몽땅 사업장에 함께 올라온다. 유형이 다르다는 걸 색으로 구분한다.
+  { code: 'remodel', label: '리모델링', short: '리모델링', group: '소규모', color: '#12B886' },
 
   // 기타
   { code: 'virtual', label: '가상구역', short: '가상', group: '기타', color: '#868E96' },

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAllDevelops, type StoredDevelop } from '@/lib/server/developStore'
+import { findSite } from '@/lib/server/siteStore'
 import { fetchTransactions, median, type Transaction } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
 import { getAptInfo } from '@/lib/server/aptInfo'
@@ -39,12 +40,48 @@ function roughKm(a: [number, number], b: [number, number]) {
 
 const MONTHS = 24
 
+/**
+ * 경계 없는 사업장의 실거래 판정 반경(km).
+ *
+ * 구역은 폴리곤 안팎으로 딱 갈리지만 사업장은 대표지번 한 점밖에 없다.
+ * 가로주택·소규모재건축은 보통 한 블록(수십~150m) 규모라 250m 로 잡았다.
+ * 정확한 경계가 아니라 "이 근처"라는 점은 응답 note 에 밝힌다.
+ */
+const SITE_RADIUS_KM = 0.25
+
 export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id가 필요합니다.' }, { status: 400 })
 
   const all = getAllDevelops()
-  const zone = all.find((z) => z.id === id)
+
+  /**
+   * 경계 없는 사업장도 같은 화면을 쓴다.
+   * 구역 모양으로 맞추되 없는 값을 지어내지 않는다 — 면적 0, 고시 null,
+   * geometry 는 빈 폴리곤. 아래 실거래 판정이 "링이 비면 반경"으로 갈라진다.
+   */
+  const site = id.startsWith('site-') ? findSite(id) : undefined
+  const zone: StoredDevelop | undefined = site
+    ? {
+        id: site.id,
+        name: site.name,
+        projectType: site.projectType,
+        rawLabel: site.bizType,
+        classCode: null,
+        areaM2: 0,
+        noticeSn: null,
+        sigungu: null,
+        bbox: [site.center[0], site.center[1], site.center[0], site.center[1]],
+        geometry: { type: 'Polygon', coordinates: [] },
+        center: site.center,
+        gu: site.gu,
+        dong: site.jibun.split(/\s+/)[0],
+        stage: site.stage ?? undefined,
+        canonicalStage: site.canonicalStage,
+        stageSiteName: site.name,
+        stageBizType: site.bizType,
+      }
+    : all.find((z) => z.id === id)
   if (!zone) return NextResponse.json({ error: '구역을 찾을 수 없습니다.' }, { status: 404 })
 
   /* ── 인근 구역 ── */
@@ -115,6 +152,8 @@ export async function GET(request: Request) {
       const pt = coords.get(`서울 ${zone.gu} ${t.dong} ${t.jibun}`)
       if (!pt) return false
       const [lng, lat] = pt
+      // 경계가 없는 사업장은 폴리곤 판정이 불가능하다 — 대표지번 반경으로 잡는다
+      if (!rings.length) return roughKm(c, [lng, lat]) <= SITE_RADIUS_KM
       if (lng < zone.bbox[0] || lng > zone.bbox[2] || lat < zone.bbox[1] || lat > zone.bbox[3])
         return false
       return rings.some((r) => pointInRing(lng, lat, r))
@@ -253,6 +292,9 @@ export async function GET(request: Request) {
       stats: zone.stats ?? null,
       // 정비몽땅 사업개요의 공급계획·공동이용시설·추진주체
       plan: zone.plan ?? null,
+      // 경계 없는 사업장인지 — 화면이 "면적 0㎡"를 진짜 값처럼 그리지 않도록 알린다
+      hasBoundary: !site,
+      ...(site && { jibun: site.jibun, precision: site.precision, cafeUrl: site.cafeUrl }),
     },
     deals: deals.slice(0, 60),
     dealCount: deals.length,
@@ -266,8 +308,12 @@ export async function GET(request: Request) {
     stageDurations: stageDurations(),
     unavailable,
     _meta: {
-      source: '경계: 서울시 의제처리구역 / 단계: 정비사업 정보몽땅 / 실거래: 국토교통부',
-      note: '실거래는 지번 지오코딩 후 구역 경계 안으로 판정된 건만 집계합니다.',
+      source: site
+        ? '사업장: 서울시 정비사업 정보몽땅 / 실거래: 국토교통부'
+        : '경계: 서울시 의제처리구역 / 단계: 정비사업 정보몽땅 / 실거래: 국토교통부',
+      note: site
+        ? `이 사업장은 정비구역 고시가 없어 경계 데이터가 존재하지 않습니다. 실거래는 대표지번(${zone.gu} ${site.jibun})에서 반경 ${SITE_RADIUS_KM * 1000}m 안의 건만 집계한 근사값이며, 구역 면적·용적률 등 제원은 원본에 없습니다.`
+        : '실거래는 지번 지오코딩 후 구역 경계 안으로 판정된 건만 집계합니다.',
     },
   })
 }

@@ -169,6 +169,11 @@ interface FullData {
     progress: ZoneProgress | null
     stats: ZoneStats | null
     plan: ZonePlan | null
+    /** false 면 정비구역 고시 전 사업장 — 경계·면적·고시일이 원본에 없다 */
+    hasBoundary?: boolean
+    jibun?: string
+    precision?: 'lot' | 'near'
+    cafeUrl?: string | null
   }
   deals: Deal[]
   dealCount: number
@@ -512,6 +517,12 @@ export default function DevelopPanel({
   const match = z.stageMatchBy ? MATCH_LABEL[z.stageMatchBy] : null
   const sColor = stageColor(z.canonicalStage)
   const pyeong = Math.round(z.areaM2 / 3.3058)
+  /**
+   * 경계 없는 사업장(가로주택·소규모·지역주택·리모델링).
+   * 정비구역 고시가 없어 면적·고시일이 원본에 아예 존재하지 않는다.
+   * 0을 그대로 그리면 "0평짜리 구역"으로 읽히므로 빈 값으로 둔다.
+   */
+  const noBoundary = data?.zone.hasBoundary === false
   const sum = data?.zone.summary ?? null
   const prog = data?.zone.progress ?? null
   const stats = data?.zone.stats ?? null
@@ -623,9 +634,20 @@ export default function DevelopPanel({
           {match && <Grade grade={match.grade} />}
         </div>
 
+        {noBoundary && (
+          /* 경계가 없다는 건 우리 데이터의 결함이 아니라 원본의 사실이다.
+             지도의 점이 구역 경계인 줄 알고 읽지 않도록 먼저 밝힌다. */
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+            <b>정비구역 고시 전 사업</b>이라 경계 데이터가 없습니다. 지도의 표시는 대표지번(
+            {data?.zone.jibun ?? '—'}) 위치이며
+            {data?.zone.precision === 'near' && ' 지번이 합병·멸실되어 근사 위치이고'} 구역 면적·용적률 등
+            제원은 원본에 존재하지 않습니다. 실거래는 대표지번 반경 250m 기준입니다.
+          </p>
+        )}
+
         <div className="mt-3 flex gap-2 pb-3">
           {[
-            { label: '구역면적', value: `${pyeong.toLocaleString()}평` },
+            { label: '구역면적', value: noBoundary ? '—' : `${pyeong.toLocaleString()}평` },
             { label: '실거래', value: loading ? '…' : `${data?.dealCount ?? 0}건` },
             {
               label: '대지평당가',
@@ -687,9 +709,18 @@ export default function DevelopPanel({
                 </p>
               ) : deals.length === 0 ? (
                 <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-xs leading-relaxed text-gray-500">
-                  구역 경계 안에서 신고된 거래가 없습니다.
-                  <br />
-                  경계 밖 거래는 집계에서 제외됩니다.
+                  {noBoundary ? (
+                    <>
+                      대표지번 반경 250m 안에서 신고된 거래가 없습니다.
+                      <br />이 사업장은 경계 데이터가 없어 반경으로 집계합니다.
+                    </>
+                  ) : (
+                    <>
+                      구역 경계 안에서 신고된 거래가 없습니다.
+                      <br />
+                      경계 밖 거래는 집계에서 제외됩니다.
+                    </>
+                  )}
                 </p>
               ) : (
                 <>
@@ -984,9 +1015,23 @@ export default function DevelopPanel({
               <h3 className="mb-2 text-sm font-bold">구역정보</h3>
               <dl className="divide-y divide-gray-100 text-sm">
                 {[
-                  { k: '구역면적', v: `${z.areaM2.toLocaleString()}㎡`, g: 'A' as const },
-                  { k: '평 환산', v: `${pyeong.toLocaleString()}평`, g: 'B' as const },
-                  { k: '소재지', v: `${z.gu ?? '—'} ${data?.zone.dong ?? ''}`.trim(), g: 'B' as const },
+                  {
+                    k: '구역면적',
+                    v: noBoundary ? '—' : `${z.areaM2.toLocaleString()}㎡`,
+                    g: 'A' as const,
+                  },
+                  {
+                    k: '평 환산',
+                    v: noBoundary ? '—' : `${pyeong.toLocaleString()}평`,
+                    g: 'B' as const,
+                  },
+                  {
+                    k: '소재지',
+                    v: noBoundary
+                      ? `${z.gu ?? ''} ${data?.zone.jibun ?? ''}`.trim() || '—'
+                      : `${z.gu ?? '—'} ${data?.zone.dong ?? ''}`.trim(),
+                    g: 'A' as const,
+                  },
                   {
                     k: '고시일',
                     v: data?.zone.noticeDate?.replace(/-/g, '.') ?? '—',

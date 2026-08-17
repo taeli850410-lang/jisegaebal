@@ -180,6 +180,63 @@ body {
   border-top: 4px solid #6366f1;
 }
 
+/* ── 경계 없는 사업장 핀 ───────────────────────────────
+   가로주택·소규모재건축·지역주택·리모델링은 정비구역 고시가 없어
+   경계 데이터가 아예 없다. 대표지번에 핀으로만 찍는다.
+
+   구역 라벨(.develop-label)과 헷갈리면 안 된다 —
+   저건 "면이 있는 곳", 이건 "점만 아는 곳"이다.
+   그래서 모서리를 둥글게 말고 꼬리를 달아 마커임을 분명히 한다. */
+.site-pin {
+  position: relative;
+  transform: translate(-50%, 0);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 168px;
+  padding: 3px 8px 4px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1.5px solid var(--pin);
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+  transition: transform 0.1s ease;
+}
+.site-pin:hover {
+  transform: translate(-50%, 0) scale(1.06);
+  z-index: 5;
+}
+.site-pin__type {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--pin);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+.site-pin__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #334155;
+  font-weight: 700;
+}
+.site-pin::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  margin-left: -4px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--pin);
+}
+
 /* ── 지역별 집계 배지 (축소 뷰) ──────────────────────
    위: 지역명(흰 바탕) / 아래: 구역 수(진한 바탕). 누르면 그 지역으로 확대. */
 .zone-cluster {

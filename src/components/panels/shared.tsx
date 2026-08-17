@@ -15,6 +15,17 @@ export interface DevelopBrief {
   canonicalStage: string | null
   center: [number, number] | null
   bbox: [number, number, number, number]
+  /**
+   * false 면 정비구역 고시 전 사업장 — 경계·면적·고시일이 원본에 없다.
+   * (가로주택·소규모재건축·지역주택·리모델링)
+   */
+  hasBoundary?: boolean
+}
+
+/** 면적 표기 — 경계 없는 사업장은 0평이 아니라 빈 값이다 */
+export function areaLabel(d: DevelopBrief): string {
+  if (d.hasBoundary === false) return '경계없음'
+  return `${Math.round(d.areaM2 / 3.3058).toLocaleString()}평`
 }
 
 export function formatEok(won: number) {
