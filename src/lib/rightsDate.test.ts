@@ -76,3 +76,19 @@ test('자치구를 몰라도 시 단위 링크는 준다', () => {
   assert.ok(l.length >= 3)
   assert.ok(!l.some((x) => x.label.endsWith('구 고시·공고')))
 })
+
+test('고시일이 없으면 미지정으로 쓴다 — 정해진 날짜가 없다는 뜻이다', () => {
+  const r = resolveRightsDate({ name: '주택재개발사업구역', noticeDate: null })
+  assert.equal(r.label, '미지정')
+})
+
+test('공모 구역은 미지정이 아니다 — 후보지 선정일이 실제로 지정돼 있다', () => {
+  const r = resolveRightsDate({ name: '모아타운 대상지', noticeDate: '2023-05-05' })
+  assert.equal(r.label, '별도 지정')
+  assert.notEqual(r.label, '미지정')
+})
+
+test('원칙이 적용되면 날짜를 점으로 찍어 그대로 보여준다', () => {
+  const r = resolveRightsDate({ name: '장위4구역', noticeDate: '2017-06-08' })
+  assert.equal(r.label, '2017.06.08')
+})

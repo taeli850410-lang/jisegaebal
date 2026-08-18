@@ -1100,7 +1100,7 @@ export default function DevelopPanel({
                   {
                     // 원칙(고시일)을 적용한 값. 후보지 선정으로 앞당겨지는 구역은 값을 비운다.
                     k: '권리산정기준일',
-                    v: rights.date ? rights.date.replace(/-/g, '.') : '원문 확인 필요',
+                    v: rights.label,
                     g: rights.basis === 'notice' ? ('B' as const) : ('D' as const),
                   },
                 ].map((r) => (

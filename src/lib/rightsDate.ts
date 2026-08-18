@@ -25,6 +25,17 @@ export interface RightsDate {
   basis: RightsBasis
   /** basis==='notice' 일 때만 채워진다 (YYYY-MM-DD) */
   date: string | null
+  /**
+   * 날짜 자리에 그대로 쓰는 표기.
+   *
+   * 고시일이 없는 구역은 "미지정"이다 — 권리산정기준일 제도가 2009년 도정법
+   * 개정으로 들어왔고, 그 전에 지정된 구역에는 아예 정해진 날짜가 없다.
+   *
+   * 공모로 뽑힌 구역까지 미지정으로 쓰면 안 된다. 그쪽은 후보지 선정일이
+   * 실제로 지정돼 고시까지 됐고, 우리가 그 값을 못 가졌을 뿐이다.
+   * 없는 것과 모르는 것은 다르게 말한다.
+   */
+  label: string
   /** 화면에 그대로 쓰는 한 줄 설명 */
   note: string
 }
@@ -47,6 +58,7 @@ export function resolveRightsDate(input: {
     return {
       basis: 'candidate',
       date: null,
+      label: '별도 지정',
       note: '공모로 선정된 사업이라 후보지 선정일이 기준일로 앞당겨 적용됩니다. 서울시 공모 선정 공고문에서 확인하세요.',
     }
   }
@@ -54,13 +66,15 @@ export function resolveRightsDate(input: {
     return {
       basis: 'notice',
       date: input.noticeDate,
+      label: input.noticeDate.replace(/-/g, '.'),
       note: '도정법 원칙에 따라 정비구역 지정 고시일을 기준일로 봅니다. 고시문 본문에 별도 기준일이 명시된 경우 그쪽이 우선합니다.',
     }
   }
   return {
     basis: 'unknown',
     date: null,
-    note: '이 구역은 고시일 정보가 없습니다. 자치구 고시·공고에서 원문을 확인하세요.',
+    label: '미지정',
+    note: '지정된 권리산정기준일이 확인되지 않습니다. 권리산정기준일 제도는 2009년 도정법 개정으로 도입되어, 그 이전 지정 구역에는 정해진 날짜가 없는 경우가 있습니다. 자치구 고시·공고에서 원문을 확인하세요.',
   }
 }
 
