@@ -31,6 +31,10 @@ export interface AptMarker {
   dealDate: string
   /** 같은 면적대 거래 수 — 1건이면 시세로 보기 어렵다 */
   count: number
+  /* 상세 조회 키 — 마커를 눌렀을 때 이 단지를 다시 찾으려면 필요하다 */
+  gu: string
+  dong: string
+  jibun: string
 }
 
 /** bbox 안에 어떤 자치구가 걸치는지 — 3x3 격자를 역지오코딩해 모은다 */
@@ -101,7 +105,15 @@ export async function GET(request: Request) {
     /* 단지 + 전용면적(정수)으로 묶는다 */
     const byUnit = new Map<
       string,
-      { name: string; lng: number; lat: number; area: number; deals: typeof deals }
+      {
+        name: string
+        lng: number
+        lat: number
+        area: number
+        dong: string
+        jibun: string
+        deals: typeof deals
+      }
     >()
     for (const d of deals) {
       if (!d.buildingName || !d.exclusiveAr) continue
@@ -111,7 +123,16 @@ export async function GET(request: Request) {
       const k = `${d.buildingName}|${d.dong}|${d.jibun}|${area}`
       const cur = byUnit.get(k)
       if (cur) cur.deals.push(d)
-      else byUnit.set(k, { name: d.buildingName, lng: pt[0], lat: pt[1], area, deals: [d] })
+      else
+        byUnit.set(k, {
+          name: d.buildingName,
+          lng: pt[0],
+          lat: pt[1],
+          area,
+          dong: d.dong,
+          jibun: d.jibun,
+          deals: [d],
+        })
     }
 
     /* 단지별로 대표 평형 하나만 남긴다 */
@@ -126,6 +147,9 @@ export async function GET(request: Request) {
         price: latest.price,
         dealDate: latest.dealDate,
         count: u.deals.length,
+        gu,
+        dong: u.dong,
+        jibun: u.jibun,
       }
       const key = `${u.name}|${u.lng.toFixed(5)}|${u.lat.toFixed(5)}`
       const prev = byComplex.get(key)

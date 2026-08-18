@@ -9,6 +9,7 @@ import type { Parcel } from '@/app/api/parcels/route'
 import FilterBar from './FilterBar'
 import { LayerToggles, ToolPanel, type LayerState, type ToolState } from './MapToolbar'
 import DevelopPanel from './DevelopPanel'
+import AptPanel from './detail/AptPanel'
 import Sidebar from './Sidebar'
 import SidePanel, { type PanelKey } from './SidePanel'
 import { getFavorites, recordView, subscribeStore } from '@/lib/userStore'
@@ -106,6 +107,10 @@ interface AptMarker {
   price: number
   dealDate: string
   count: number
+  /* 마커를 눌렀을 때 단지 상세를 다시 찾는 열쇠 */
+  gu: string
+  dong: string
+  jibun: string
 }
 
 /** 마커에 넣을 짧은 가격 — "17억", "8.5억", "9,500만" */
@@ -180,6 +185,10 @@ export default function MapView() {
   const [parcelError, setParcelError] = useState<string | null>(null)
   /** 공공데이터포털이 실거래를 막았을 때의 사유 — 0건과 구분해야 한다 */
   const [molitError, setMolitError] = useState<string | null>(null)
+  /** 지도에서 고른 아파트 단지 — gu|dong|jibun|name */
+  const [selectedApt, setSelectedApt] = useState<
+    { gu: string; dong: string; jibun: string; name: string } | null
+  >(null)
   const [aptCount, setAptCount] = useState(0)
   const [aptLoading, setAptLoading] = useState(false)
   const [dealCount, setDealCount] = useState(0)
@@ -520,11 +529,22 @@ export default function MapView() {
     const el = containerRef.current
     if (!el) return
     const onClick = (e: MouseEvent) => {
-      const pin = (e.target as HTMLElement | null)?.closest?.('.site-pin') as HTMLElement | null
-      const id = pin?.dataset.site
-      if (!id) return
+      const el = e.target as HTMLElement | null
+      const pin = el?.closest?.('.site-pin') as HTMLElement | null
+      if (pin?.dataset.site) {
+        e.stopPropagation()
+        setPendingSelectId(pin.dataset.site)
+        return
+      }
+      // 단지 마커 — 구역과 같은 자리에 아파트 상세를 연다
+      const apt = el?.closest?.('.apt-price') as HTMLElement | null
+      const key = apt?.dataset.apt
+      if (!key) return
+      const [gu, dong, jibun, ...rest] = key.split('|')
+      if (!gu || !dong || !jibun) return
       e.stopPropagation()
-      setPendingSelectId(id)
+      setSelected(null)
+      setSelectedApt({ gu, dong, jibun, name: rest.join('|') })
     }
     el.addEventListener('click', onClick)
     return () => el.removeEventListener('click', onClick)
@@ -755,10 +775,12 @@ export default function MapView() {
             position: pos,
             yAnchor: 1,
             zIndex: 2,
-            clickable: false,
+            clickable: true,
             content:
-              `<div class="apt-price" title="${escapeHtml(m.name)} · 전용 ${m.area}㎡ · ` +
-              `${m.dealDate} · ${m.count}건">` +
+              `<div class="apt-price" data-apt="${escapeHtml(
+                [m.gu, m.dong, m.jibun, m.name].join('|'),
+              )}" title="${escapeHtml(m.name)} · 전용 ${m.area}㎡ · ` +
+              `${m.dealDate} · ${m.count}건 · 눌러서 상세 보기">` +
               `<b>${m.area}</b> ${escapeHtml(eokLabel(m.price))}</div>`,
           })
           aptOverlaysRef.current.push(overlay)
@@ -1514,6 +1536,18 @@ export default function MapView() {
             onClose={() => setSelected(null)}
             onFocus={(bbox, id) => {
               focusByBounds(bbox)
+              setPendingSelectId(id)
+            }}
+          />
+        )}
+
+        {/* 단지 상세 — 구역 패널과 같은 자리를 쓴다. 둘이 동시에 뜨면 겹친다. */}
+        {selectedApt && !selected && (
+          <AptPanel
+            {...selectedApt}
+            onClose={() => setSelectedApt(null)}
+            onSelectZone={(id) => {
+              setSelectedApt(null)
               setPendingSelectId(id)
             }}
           />

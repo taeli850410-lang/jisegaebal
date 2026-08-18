@@ -301,7 +301,13 @@ body {
   line-height: 1.3;
   letter-spacing: -0.02em;
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
-  pointer-events: none;
+  /* 눌러서 단지 상세를 연다 — 예전에는 이벤트를 통과시켜 클릭이 지도로 샜다 */
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.apt-price:hover {
+  transform: translate(-50%, 0) scale(1.08);
+  z-index: 5;
 }
 .apt-price b {
   margin-right: 3px;
