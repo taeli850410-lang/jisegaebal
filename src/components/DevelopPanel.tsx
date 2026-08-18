@@ -10,6 +10,7 @@ import DealChart, { type ChartPoint } from './detail/DealChart'
 import BurdenSimulator from './detail/BurdenSimulator'
 import ZoneReport from './detail/ZoneReport'
 import ShareCard from './detail/ShareCard'
+import { resolveRightsDate, verifyLinks } from '@/lib/rightsDate'
 
 /** 매칭 방식에 따라 신뢰도가 다르다 — 숨기지 않고 드러낸다 */
 const MATCH_LABEL: Record<string, { text: string; grade: 'A' | 'B' | 'C' }> = {
@@ -534,6 +535,19 @@ export default function DevelopPanel({
    * 0을 그대로 그리면 "0평짜리 구역"으로 읽히므로 빈 값으로 둔다.
    */
   const noBoundary = data?.zone.hasBoundary === false
+
+  /**
+   * 권리산정기준일 — 도정법 원칙은 정비구역 지정 고시일이다.
+   * 공모로 뽑힌 사업(신통·공공재개발·모아타운·장기전세)은 후보지 선정일이
+   * 앞당겨 적용되므로 고시일을 그대로 쓰면 안 된다. 그 경우 값을 내지 않는다.
+   */
+  const rights = resolveRightsDate({
+    name: z.name,
+    rawLabel: z.rawLabel,
+    projectType: z.projectType,
+    noticeDate: data?.zone.noticeDate ?? null,
+  })
+  const rightsLinks = verifyLinks(z.name, z.gu ?? null, data?.zone.jibun ?? null)
   const sum = data?.zone.summary ?? null
   const prog = data?.zone.progress ?? null
   const stats = data?.zone.stats ?? null
@@ -1083,6 +1097,12 @@ export default function DevelopPanel({
                     v: data?.zone.noticeDate?.replace(/-/g, '.') ?? '—',
                     g: 'A' as const,
                   },
+                  {
+                    // 원칙(고시일)을 적용한 값. 후보지 선정으로 앞당겨지는 구역은 값을 비운다.
+                    k: '권리산정기준일',
+                    v: rights.date ? rights.date.replace(/-/g, '.') : '원문 확인 필요',
+                    g: rights.basis === 'notice' ? ('B' as const) : ('D' as const),
+                  },
                 ].map((r) => (
                   <div key={r.k} className="flex items-center justify-between py-2">
                     <dt className="text-gray-500">{r.k}</dt>
@@ -1099,6 +1119,34 @@ export default function DevelopPanel({
                   </div>
                 )}
               </dl>
+
+              {/* ── 권리산정기준일 안내 ──
+                  분양권이 나오느냐가 이 날짜 하나로 갈린다. 우리 계산만 믿고
+                  판단하면 안 되므로, 무엇을 근거로 냈는지와 원문을 어디서 보는지를
+                  값 바로 옆에 붙인다. */}
+              <div
+                className={
+                  rights.basis === 'notice'
+                    ? 'mt-3 rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] leading-relaxed text-slate-600'
+                    : 'mt-3 rounded-lg bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-900'
+                }
+              >
+                <b>권리산정기준일</b> — {rights.note}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {rightsLinks.map((l) => (
+                    <a
+                      key={l.label}
+                      href={l.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={l.note}
+                      className="rounded-md border border-current/25 bg-white/70 px-2 py-1 font-bold hover:bg-white"
+                    >
+                      {l.label} ↗
+                    </a>
+                  ))}
+                </div>
+              </div>
 
               {/* 정비몽땅 사업개요 제원 — 있는 구역만 */}
               {sum && (
@@ -1695,9 +1743,6 @@ export default function DevelopPanel({
                   ...(stats
                     ? []
                     : [['세대현황 · 노후도 · 개발여건', '이 구역은 아직 산출 전입니다'] as const]),
-                  // 정비몽땅 사업개요에 권리산정기준일 필드가 없다(재개발·재건축 모두 확인).
-                  // 서울시 고시공고 본문 파싱만 남는데 구역별 매칭이 불안정하다.
-                  ['권리산정기준일', '고시문 본문 — 자동 매칭 불안정'],
                   ['토지등소유자 수', '개인정보 — 공개 API 없음'],
                   ['반지하 비율', '건축물대장 층별개요 (현재는 지하층 보유로 대체)'],
                   ['매물', '중개 제휴 필요'],
