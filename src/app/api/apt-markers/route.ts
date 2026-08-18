@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { fetchTransactions } from '@/lib/server/molit'
+import { fetchTransactions, lastMolitError } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
 import { SEOUL_LAWD } from '@/lib/server/lawdCodes'
 
@@ -156,6 +156,8 @@ export async function GET(request: Request) {
     total: inView.length,
     // 너무 많으면 라벨이 서로 덮는다. 최근 거래 순으로 잘라 보낸다.
     markers: inView.sort((a, b) => b.dealDate.localeCompare(a.dealDate)).slice(0, 300),
+    // 0건이 진짜 0건인지, 공공데이터포털이 막은 건지 구분한다
+    unavailable: lastMolitError(),
     _meta: {
       source: '국토교통부 아파트 매매 실거래 (최근 12개월)',
       note: '단지별 대표 평형 1건입니다. 전용 84㎡가 있으면 그것을, 없으면 거래가 가장 많은 평형을 씁니다.',

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAllDevelops, type StoredDevelop } from '@/lib/server/developStore'
 import { findSite } from '@/lib/server/siteStore'
-import { fetchTransactions, median, type Transaction } from '@/lib/server/molit'
+import { fetchTransactions, lastMolitError, median, type Transaction } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
 import { getAptInfo } from '@/lib/server/aptInfo'
 import { stageDurations } from '@/lib/server/stageStats'
@@ -158,6 +158,12 @@ export async function GET(request: Request) {
         return false
       return rings.some((r) => pointInRing(lng, lat, r))
     })
+  }
+
+  // 거래 0건이 진짜 0건인지, 포털이 막은 건지 가른다
+  if (!unavailable && deals.length === 0) {
+    const err = lastMolitError()
+    if (err) unavailable = err
   }
 
   /* ── 인근 아파트 ──

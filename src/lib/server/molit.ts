@@ -145,16 +145,47 @@ async function rateLimited<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * 마지막으로 관측한 공공데이터포털 오류.
+ *
+ * 예전에는 실패를 빈 문자열로 뭉개서, 키가 거부돼도 화면은 "실거래 0건"이라고
+ * 말했다. 거래가 없는 것과 못 불러온 것은 완전히 다른 얘기다.
+ * 라우트가 사용자에게 사유를 밝힐 수 있도록 밖으로 들고 나간다.
+ */
+let lastError: string | null = null
+
+/** 공공데이터포털이 XML/JSON 어느 쪽으로 오든 오류코드를 뽑는다 */
+function errorOf(body: string): string | null {
+  const m =
+    body.match(/<errMsg>([^<]*)<\/errMsg>/) ??
+    body.match(/"errMsg"\s*:\s*"([^"]*)"/) ??
+    body.match(/<returnReasonCode>([^<]*)<\/returnReasonCode>/)
+  return m ? m[1].trim() : null
+}
+
+export function lastMolitError(): string | null {
+  return lastError
+}
+
 async function fetchXml(url: string): Promise<string> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const xml = await rateLimited(async () => {
       try {
         const r = await fetch(url, { cache: 'no-store' })
-        return r.ok ? await r.text() : ''
-      } catch {
+        const body = await r.text()
+        if (!r.ok) {
+          // 403 본문에 사유가 들어 있다 (등록되지 않은 서비스키 등)
+          lastError = errorOf(body) ?? `HTTP_${r.status}`
+          return ''
+        }
+        return body
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : 'FETCH_FAILED'
         return ''
       }
     })
+    const err = xml ? errorOf(xml) : null
+    if (err) lastError = err
     if (!/PER_SECOND_EXCEEDS/.test(xml)) return xml
     await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
   }
@@ -173,6 +204,7 @@ export async function fetchTransactions(
   const key = `${gu}|${months}|${kinds.join(',')}`
   const hit = cache.get(key)
   if (hit && Date.now() - hit.at < TTL) return hit.data
+  lastError = null
 
   const now = new Date()
   const ymList: string[] = []
@@ -192,7 +224,12 @@ export async function fetchTransactions(
   }
 
   const items = (await Promise.all(jobs)).flat().sort((a, b) => b.dealDate.localeCompare(a.dealDate))
-  cache.set(key, { at: Date.now(), data: items })
+  /*
+   * 실패한 조회는 캐시하지 않는다.
+   * 빈 배열을 캐시해 두면 키를 고친 뒤에도 TTL 동안 계속 0건으로 보인다 —
+   * 공주가 캐시에서 똑같은 실수를 한 적이 있다.
+   */
+  if (!(lastError && items.length === 0)) cache.set(key, { at: Date.now(), data: items })
   return items
 }
 

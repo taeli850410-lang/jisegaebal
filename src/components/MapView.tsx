@@ -12,6 +12,7 @@ import DevelopPanel from './DevelopPanel'
 import Sidebar from './Sidebar'
 import SidePanel, { type PanelKey } from './SidePanel'
 import { getFavorites, recordView, subscribeStore } from '@/lib/userStore'
+import { molitErrorMessage } from '@/lib/molitError'
 
 const INITIAL_CENTER = { lat: 37.5502, lng: 126.9908 } // 서울 중심
 const INITIAL_LEVEL = 8
@@ -177,6 +178,8 @@ export default function MapView() {
   const [parcelCount, setParcelCount] = useState(0)
   /** 필지를 못 가져온 이유 — 조용히 비워두지 않고 화면에 밝힌다 */
   const [parcelError, setParcelError] = useState<string | null>(null)
+  /** 공공데이터포털이 실거래를 막았을 때의 사유 — 0건과 구분해야 한다 */
+  const [molitError, setMolitError] = useState<string | null>(null)
   const [aptCount, setAptCount] = useState(0)
   const [aptLoading, setAptLoading] = useState(false)
   const [dealCount, setDealCount] = useState(0)
@@ -718,8 +721,9 @@ export default function MapView() {
     setAptLoading(true)
     fetch(`/api/apt-markers?bbox=${bbox}`)
       .then((r) => r.json())
-      .then((j: { markers?: AptMarker[] }) => {
+      .then((j: { markers?: AptMarker[]; unavailable?: string | null }) => {
         if (cancelled) return
+        setMolitError((prev) => j.unavailable ?? prev)
         const list = j.markers ?? []
 
         // 라벨끼리 겹치면 못 읽는다. 최근 거래부터 자리를 잡는다.
@@ -792,8 +796,9 @@ export default function MapView() {
     setDealLoading(true)
     fetch(`/api/deal-markers?bbox=${bbox}&months=12`)
       .then((r) => r.json())
-      .then((j: { markers?: DealMarker[] }) => {
+      .then((j: { markers?: DealMarker[]; unavailable?: string | null }) => {
         if (cancelled) return
+        setMolitError(j.unavailable ?? null)
         const projection = map.getProjection()
         const placed: { l: number; t: number; r: number; b: number }[] = []
         const GAP = 2
@@ -1141,6 +1146,16 @@ export default function MapView() {
         : '필지를 불러오지 못했습니다 — 국토교통부 연속지적도(V-World) 응답이 없습니다. 잠시 후 다시 시도해 주세요.'
       : null
 
+  /*
+   * 실거래·단지가 비었을 때, 그게 "거래가 없다"인지 "못 불러왔다"인지 밝힌다.
+   * 키가 거부되는데 화면이 0건이라고 말하면 사용자는 그 동네에 거래가
+   * 없는 줄 안다 — 필지 목업으로 이미 겪은 실수다.
+   */
+  const molitHint =
+    (layers.transactions || layers.apartments) && molitError
+      ? molitErrorMessage(molitError)
+      : null
+
   // 실거래·단지는 이제 실제로 그린다. 매물·경매만 아직 미연동이다.
   const unavailableLayer = layers.listings || layers.auctions
 
@@ -1345,6 +1360,11 @@ export default function MapView() {
           {parcelErrorHint && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs text-rose-800 shadow-sm">
               {parcelErrorHint}
+            </div>
+          )}
+          {molitHint && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 shadow-sm">
+              <b>{molitHint.title}</b> {molitHint.detail}
             </div>
           )}
           {dealHint && (

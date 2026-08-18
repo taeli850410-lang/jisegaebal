@@ -11,6 +11,7 @@ import BurdenSimulator from './detail/BurdenSimulator'
 import ZoneReport from './detail/ZoneReport'
 import ShareCard from './detail/ShareCard'
 import { resolveRightsDate, verifyLinks } from '@/lib/rightsDate'
+import { molitErrorMessage } from '@/lib/molitError'
 
 /** 매칭 방식에 따라 신뢰도가 다르다 — 숨기지 않고 드러낸다 */
 const MATCH_LABEL: Record<string, { text: string; grade: 'A' | 'B' | 'C' }> = {
@@ -747,9 +748,13 @@ export default function DevelopPanel({
               </div>
 
               {data?.unavailable ? (
-                <p className="note-box note-box--center">
-                  실거래 데이터를 불러올 수 없습니다.
-                </p>
+                /* 왜 비었는지 말한다. "0건"으로 두면 거래가 없는 구역처럼 읽힌다. */
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-[12px] leading-relaxed text-amber-900">
+                  <b>{molitErrorMessage(data.unavailable).title}</b>
+                  <p className="mt-1 text-[11px] text-amber-800">
+                    {molitErrorMessage(data.unavailable).detail}
+                  </p>
+                </div>
               ) : deals.length === 0 ? (
                 <p className="note-box note-box--center">
                   {noBoundary ? (

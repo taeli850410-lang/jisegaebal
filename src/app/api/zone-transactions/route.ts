@@ -1,6 +1,6 @@
 ﻿import { NextResponse } from 'next/server'
 import { getAllDevelops } from '@/lib/server/developStore'
-import { fetchTransactions, median, type Kind, type Transaction } from '@/lib/server/molit'
+import { fetchTransactions, median, type Kind, type Transaction, lastMolitError } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
 import { attachPublicPrices } from '@/lib/server/housePrice'
 import { outerRings } from '@/lib/types'
@@ -189,6 +189,8 @@ export async function GET(request: Request) {
       geocoded: r.geocoded,
       unresolved: r.unresolved,
       zones: r.result,
+      // 0건이 진짜 0건인지, 공공데이터포털이 막은 건지 구분한다
+      unavailable: lastMolitError(),
       _meta: {
         source: '국토교통부 실거래가 + 서울시 의제처리구역 경계',
         note: '실거래는 지번 지오코딩 후 구역 경계 안으로 판정된 건만 집계합니다.',
@@ -234,6 +236,8 @@ export async function GET(request: Request) {
     fetchedDeals: fetched,
     // 상위권만 쓰므로 200개면 충분하다 — 전량을 보내면 응답이 수 MB가 된다
     zones: merged.slice(0, 200),
+    // 0건이 진짜 0건인지, 공공데이터포털이 막은 건지 구분한다
+    unavailable: lastMolitError(),
     _meta: {
       source: '국토교통부 실거래가 + 서울시 의제처리구역 경계',
       note:

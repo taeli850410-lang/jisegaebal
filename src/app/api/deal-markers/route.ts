@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAllDevelops } from '@/lib/server/developStore'
-import { fetchTransactions } from '@/lib/server/molit'
+import { fetchTransactions, lastMolitError } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
 import { SEOUL_LAWD } from '@/lib/server/lawdCodes'
 import { outerRings } from '@/lib/types'
@@ -178,6 +178,8 @@ export async function GET(request: Request) {
         return bz - az || b.dealDate.localeCompare(a.dealDate)
       })
       .slice(0, 400),
+    // 0건이 진짜 0건인지, 공공데이터포털이 막은 건지 구분한다
+    unavailable: lastMolitError(),
     _meta: {
       source: '국토교통부 실거래가 (연립다세대·단독다가구·토지)',
       note: '지번마다 최근 거래 1건입니다. 아파트는 대지지분이 없어 단지 레이어에서 따로 봅니다.',
