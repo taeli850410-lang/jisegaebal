@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getFavorites, getViews, subscribeStore } from '@/lib/userStore'
 import ZoneDealCard, { type ZoneDeals } from './panels/ZoneDealCard'
 import HotPanel from './panels/HotPanel'
+import AuctionPanel from './panels/AuctionPanel'
 import {
   Empty,
   PanelHint,
@@ -104,10 +105,19 @@ export default function SidePanel({
     return (json.items ?? []) as DevelopBrief[]
   }, [])
 
-  /* 자치구 목록 — 실거래·인기에서 공용 */
+  /** 구역 id 하나로 상세를 연다 — 공매 항목처럼 구역 객체가 없는 곳에서 쓴다 */
+  const selectById = useCallback(
+    async (id: string) => {
+      const [d] = await fetchByIds([id])
+      if (d) onSelect(d)
+    },
+    [fetchByIds, onSelect],
+  )
+
+  /* 자치구 목록 — 실거래·인기·경매에서 공용 */
   useEffect(() => {
     if (gus.length) return
-    if (panel !== 'transactions' && panel !== 'hot') return
+    if (panel !== 'transactions' && panel !== 'hot' && panel !== 'auctions') return
     fetch('/api/develops/browse?meta=gu')
       .then((r) => r.json())
       .then((j) => setGus(j.gus ?? []))
@@ -328,8 +338,8 @@ export default function SidePanel({
         {panel === 'listings' && !loading && (
           <Empty text={"매물 데이터는 아직 연동되지 않았습니다.\n중개사 매물 등록 또는 제휴 연동이 필요합니다."} />
         )}
-        {panel === 'auctions' && !loading && (
-          <Empty text={"경매 데이터는 아직 연동되지 않았습니다.\n법원경매정보 수집 연동이 필요합니다."} />
+        {panel === 'auctions' && (
+          <AuctionPanel gu={gu === ALL_GU ? '' : gu} guSelect={GuSelect} onSelectZone={selectById} />
         )}
 
         {/* 관심 */}
