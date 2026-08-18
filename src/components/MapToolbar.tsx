@@ -23,7 +23,7 @@ export interface ToolState {
 const LAYERS: { key: keyof LayerState; label: string }[] = [
   { key: 'transactions', label: '실거래' },
   { key: 'listings', label: '매물' },
-  { key: 'auctions', label: '경매' },
+  { key: 'auctions', label: '공매' },
   { key: 'apartments', label: '단지' },
 ]
 

@@ -236,11 +236,31 @@ export default function AuctionPanel({
         </button>
       )}
 
+      {gu && (
+        /* 공매와 경매는 다른 제도다. 이 화면에 있는 건 공매뿐이라는 걸
+           목록을 보기 전에 알려야 한다 — 다 보고 나서 각주로 알리면 늦다. */
+        <div className="mx-4 mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-[11px] leading-relaxed text-sky-900">
+          <b>공매</b>는 한국자산관리공사(캠코)가 온비드에서 진행합니다 — 세금 체납으로 압류된
+          재산, 국유·수탁재산 등입니다.
+          <br />
+          <b>법원경매</b>(민사집행법)는 별개 제도이며 공개 API가 없어 여기 포함되지 않습니다.{' '}
+          <a
+            href="https://www.courtauction.go.kr/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold underline"
+          >
+            법원경매정보 ↗
+          </a>
+          에서 직접 조회하세요.
+        </div>
+      )}
+
       {!loading && gu && (
-        <p className="px-4 pt-2 pb-4 text-[10px] leading-relaxed text-gray-400">
-          출처: 한국자산관리공사 온비드 공매. <b>법원경매는 공개 API가 없어 포함되지 않습니다.</b>{' '}
-          구역 표시는 물건 지번을 좌표로 변환해 구역 경계 안으로 판정된 건입니다. 입찰
-          조건·권리관계는 반드시 온비드 원문에서 확인하세요.
+        <p className="px-4 pt-3 pb-4 text-[10px] leading-relaxed text-gray-400">
+          출처: 한국자산관리공사 온비드 공매(차세대 부동산 물건목록). 구역 표시는 물건 지번을
+          좌표로 변환해 구역 경계 안으로 판정된 건입니다. 입찰 조건·권리관계는 반드시 온비드
+          원문에서 확인하세요.
         </p>
       )}
     </>

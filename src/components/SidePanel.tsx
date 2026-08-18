@@ -56,7 +56,7 @@ const TITLES: Record<PanelKey, string> = {
   new: '신규 구역',
   transactions: '지역별 실거래',
   listings: '매물',
-  auctions: '경매',
+  auctions: '공매 (온비드)',
 }
 
 export default function SidePanel({

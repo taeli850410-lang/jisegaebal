@@ -1156,12 +1156,11 @@ export default function MapView() {
       ? molitErrorMessage(molitError)
       : null
 
-  // 실거래·단지는 이제 실제로 그린다. 매물·경매만 아직 미연동이다.
   /*
-   * 매물만 미연동이다 — 경매(공매)는 온비드로 붙였다.
+   * 매물만 미연동이다 — 공매(온비드)는 붙였다. 법원경매는 물건 API 가 없다.
    * 다만 지도 마커로는 안 그린다. 공매 물건은 자치구당 100~200건인데
    * 대부분 정비구역 밖이라 지도에 뿌리면 구역을 덮기만 한다.
-   * 왼쪽 경매 패널에서 목록으로 보고, 구역 안 물건은 거기서 구역으로 넘어간다.
+   * 왼쪽 공매 패널에서 목록으로 보고, 구역 안 물건은 거기서 구역으로 넘어간다.
    */
   const unavailableLayer = layers.listings
 
@@ -1390,7 +1389,7 @@ export default function MapView() {
           )}
           {layers.auctions && (
             <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-800 shadow-sm">
-              공매는 왼쪽 <b>경매</b> 메뉴에서 자치구별로 봅니다 — 물건이 구역 밖에 흩어져 있어
+              공매는 왼쪽 <b>공매</b> 메뉴에서 자치구별로 봅니다 — 물건이 구역 밖에 흩어져 있어
               지도에 뿌리면 구역을 덮습니다
             </div>
           )}

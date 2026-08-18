@@ -62,7 +62,7 @@ export default function Sidebar({
             ['✨', '신규', 'new'],
             ['📊', '실거래', 'transactions'],
             ['🏢', '매물', 'listings'],
-            ['🔨', '경매', 'auctions'],
+            ['🔨', '공매', 'auctions'],
           ] as const
         ).map(([icon, label, key]) => (
           <button
