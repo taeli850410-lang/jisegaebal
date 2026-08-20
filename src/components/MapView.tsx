@@ -1409,12 +1409,6 @@ export default function MapView() {
               매물 레이어는 아직 <b>미연동</b>입니다 (중개 제휴 필요)
             </div>
           )}
-          {layers.auctions && (
-            <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-800 shadow-sm">
-              공매는 왼쪽 <b>공매</b> 메뉴에서 자치구별로 봅니다 — 물건이 구역 밖에 흩어져 있어
-              지도에 뿌리면 구역을 덮습니다
-            </div>
-          )}
           {rulerDistance !== null && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700 shadow-sm">
               총 거리 <b>{rulerDistance.toLocaleString()}m</b> · 지도를 클릭해 점을 추가하세요

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getFavorites, getViews, subscribeStore } from '@/lib/userStore'
 import ZoneDealCard, { type ZoneDeals } from './panels/ZoneDealCard'
 import HotPanel from './panels/HotPanel'
-import AuctionPanel from './panels/AuctionPanel'
+import CourtAuctionPanel from './panels/CourtAuctionPanel'
 import {
   Empty,
   PanelHint,
@@ -56,7 +56,7 @@ const TITLES: Record<PanelKey, string> = {
   new: '신규 구역',
   transactions: '지역별 실거래',
   listings: '매물',
-  auctions: '공매 (온비드)',
+  auctions: '경매',
 }
 
 export default function SidePanel({
@@ -339,7 +339,7 @@ export default function SidePanel({
           <Empty text={"매물 데이터는 아직 연동되지 않았습니다.\n중개사 매물 등록 또는 제휴 연동이 필요합니다."} />
         )}
         {panel === 'auctions' && (
-          <AuctionPanel gu={gu === ALL_GU ? '' : gu} guSelect={GuSelect} onSelectZone={selectById} />
+          <CourtAuctionPanel gu={gu === ALL_GU ? '' : gu} guSelect={GuSelect} />
         )}
 
         {/* 관심 */}
