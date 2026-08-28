@@ -10,7 +10,7 @@ import {
   type Listing,
   type ListingSort,
 } from '@/lib/listingModel'
-import { getListings, removeListing, saveListing } from '@/lib/listingStore'
+import { loadListings, removeListing, saveListing, type StoreMode } from '@/lib/listingStore'
 import { subscribeStore } from '@/lib/userStore'
 
 /**
@@ -66,6 +66,8 @@ export default function ZoneListings({
   dong: string | null
 }) {
   const [items, setItems] = useState<Listing[]>([])
+  /** 지금 어디에 저장되고 있는가 — 감추지 않는다 */
+  const [mode, setMode] = useState<StoreMode>('local')
   const [tick, setTick] = useState(0)
   const [open, setOpen] = useState(false)
   const [sort, setSort] = useState<ListingSort>('price')
@@ -74,9 +76,20 @@ export default function ZoneListings({
   const [jibun, setJibun] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => subscribeStore(() => setTick((t) => t + 1)), [])
-  useEffect(() => setItems(getListings(zoneId)), [zoneId, tick])
+  useEffect(() => {
+    let cancelled = false
+    loadListings(zoneId).then((r) => {
+      if (cancelled) return
+      setItems(r.items)
+      setMode(r.mode)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [zoneId, tick])
 
   /**
    * 등록할 때 공공데이터를 붙인다.
@@ -105,7 +118,7 @@ export default function ZoneListings({
         ...(f.floor ? { floor: f.floor } : {}),
       })
       const v = await fetch(`/api/verify?${q}`).then((r) => r.json())
-      saveListing(
+      const res = await saveListing(
         {
           gu,
           dong,
@@ -128,6 +141,13 @@ export default function ZoneListings({
         },
         Date.now(),
       )
+      if (res.mode === 'local') {
+        setNotice('이 브라우저에만 저장되었습니다. 다른 사람에게는 보이지 않습니다.')
+      } else if (!res.published) {
+        setNotice('저장되었습니다. 중개사무소명·등록번호·전화가 없어 공개 목록에는 올라가지 않습니다.')
+      } else {
+        setNotice(null)
+      }
       setF(EMPTY_FORM)
       setJibun('')
       setOpen(false)
@@ -149,8 +169,24 @@ export default function ZoneListings({
         직접 넣은 것입니다. 넣는 순간 공시가·대지지분·용도를 공공데이터로 붙여 감정가·프리미엄·
         초기투자금을 계산합니다.
         <br />
-        <b>지금은 이 브라우저에만 저장됩니다</b> — 다른 사람에게는 보이지 않습니다.
+        {mode === 'server' ? (
+          <>
+            <b>서버에 저장되어 모두가 봅니다.</b> 공개 목록에 나오려면 중개사무소명·등록번호·
+            전화가 있어야 합니다 (공인중개사법 제18조의2).
+          </>
+        ) : (
+          <>
+            <b>지금은 이 브라우저에만 저장됩니다</b> — 다른 사람에게는 보이지 않습니다. 서버
+            저장소가 연결되면 자동으로 공용으로 바뀝니다.
+          </>
+        )}
       </div>
+
+      {notice && (
+        <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
+          {notice}
+        </p>
+      )}
 
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[11px] text-gray-500">
@@ -381,8 +417,8 @@ export default function ZoneListings({
                       </td>
                       <td className="py-1.5 pl-1 text-right">
                         <button
-                          onClick={() => {
-                            removeListing(l.id)
+                          onClick={async () => {
+                            await removeListing(l.id)
                             setTick((t) => t + 1)
                           }}
                           aria-label="삭제"
