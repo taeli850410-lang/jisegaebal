@@ -10,6 +10,7 @@ import DealChart, { type ChartPoint } from './detail/DealChart'
 import BurdenSimulator from './detail/BurdenSimulator'
 import ZoneReport from './detail/ZoneReport'
 import ShareCard from './detail/ShareCard'
+import ZoneParcels from './detail/ZoneParcels'
 import { resolveRightsDate, verifyLinks } from '@/lib/rightsDate'
 import { molitErrorMessage } from '@/lib/molitError'
 
@@ -238,6 +239,7 @@ const TABS = [
   { key: 'deals', label: '실거래' },
   { key: 'progress', label: '진행현황' },
   { key: 'library', label: '자료실' },
+  { key: 'parcels', label: '구역 내 물건' },
   { key: 'info', label: '구역정보' },
   { key: 'news', label: '뉴스' },
   { key: 'nearby', label: '인근 구역' },
@@ -1071,6 +1073,20 @@ export default function DevelopPanel({
                 연결합니다. 정비몽땅 정보공개 자료는 소유주 본인인증이 필요해 자동으로 가져올 수
                 없습니다.
               </p>
+            </section>
+
+            {/* 구역 내 물건 — 매물이 없어도 살 수 있는 것들을 지번 단위로 */}
+            <section data-section="parcels" className="panel-section"
+              style={{ '--accent': '#10b981' } as React.CSSProperties}
+            >
+              <h3 className="panel-h">구역 내 물건</h3>
+              {noBoundary ? (
+                <p className="note-box note-box--center">
+                  경계 데이터가 없어 구역 안 필지를 가려낼 수 없습니다.
+                </p>
+              ) : (
+                <ZoneParcels zoneId={z.id} />
+              )}
             </section>
 
             {/* 구역정보 */}

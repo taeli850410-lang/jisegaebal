@@ -21,6 +21,9 @@ export interface VParcel {
   /** 개별공시지가 (원/㎡) — 연속지적도가 함께 준다 */
   jiga: number | null
   ring: [number, number][]
+  /* 건축물대장·공시가격 색인은 코드가 아니라 이름으로 키를 잡는다 */
+  gu: string | null
+  dong: string | null
 }
 
 let cache: Record<string, VParcel[]> | null = null
@@ -110,6 +113,8 @@ export async function fetchParcels(
           // "751-13 대" 처럼 지목이 붙어 온다
           jibun: (p.jibun ?? '').trim(),
           jiga: Number.isFinite(jiga) && jiga > 0 ? jiga : null,
+          gu: p.sig_nm ?? null,
+          dong: p.emd_nm ?? null,
           ring,
         })
       }
