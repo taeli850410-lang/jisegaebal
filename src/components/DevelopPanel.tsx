@@ -11,6 +11,7 @@ import BurdenSimulator from './detail/BurdenSimulator'
 import ZoneReport from './detail/ZoneReport'
 import ShareCard from './detail/ShareCard'
 import ZoneParcels from './detail/ZoneParcels'
+import ZoneListings from './detail/ZoneListings'
 import { resolveRightsDate, verifyLinks } from '@/lib/rightsDate'
 import { molitErrorMessage } from '@/lib/molitError'
 
@@ -239,6 +240,7 @@ const TABS = [
   { key: 'deals', label: '실거래' },
   { key: 'progress', label: '진행현황' },
   { key: 'library', label: '자료실' },
+  { key: 'listings', label: '매물' },
   { key: 'parcels', label: '구역 내 물건' },
   { key: 'info', label: '구역정보' },
   { key: 'news', label: '뉴스' },
@@ -1073,6 +1075,19 @@ export default function DevelopPanel({
                 연결합니다. 정비몽땅 정보공개 자료는 소유주 본인인증이 필요해 자동으로 가져올 수
                 없습니다.
               </p>
+            </section>
+
+            {/* 매물 — 등록된 것만. 우리가 긁어온 건 하나도 없다. */}
+            <section data-section="listings" className="panel-section"
+              style={{ '--accent': '#f43f5e' } as React.CSSProperties}
+            >
+              <h3 className="panel-h">매물</h3>
+              <ZoneListings
+                zoneId={z.id}
+                zoneName={z.name}
+                gu={z.gu ?? null}
+                dong={data?.zone.dong ?? null}
+              />
             </section>
 
             {/* 구역 내 물건 — 매물이 없어도 살 수 있는 것들을 지번 단위로 */}
