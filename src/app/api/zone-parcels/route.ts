@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { getAllDevelops } from '@/lib/server/developStore'
 import { fetchParcels, hasVWorld, ringAreaM2 } from '@/lib/server/vworld'
 import { fetchTransactions } from '@/lib/server/molit'
+import { getExposMany } from '@/lib/server/expos'
 import { outerRings } from '@/lib/types'
 
 /**
@@ -107,6 +108,14 @@ export interface ParcelCard {
    */
   landShareMinPyeong: number | null
   landShareMaxPyeong: number | null
+  /**
+   * 대지지분을 어디서 냈나.
+   *   price  공동주택 공시가격의 호별 전용면적으로 안분
+   *   expos  집합건축물대장 전유부의 호별 전용면적으로 안분
+   *   whole  집합건물이 아니다 — 필지 전체가 곧 대지지분
+   *   none   건물이 없거나 판단할 근거가 없다
+   */
+  unitSource: 'price' | 'expos' | 'whole' | 'none'
   /* ── 최근 실거래 ── */
   lastDeal: { date: string; price: number; typeLabel: string; landPyeong: number | null } | null
   /** 네이버 부동산 지번 검색 — 데이터를 저장하지 않고 링크만 건다 */
@@ -168,6 +177,23 @@ export async function GET(request: Request) {
     }
   }
 
+  /*
+   * 공시가격이 없는 지번은 전유부에서 호별 전용면적을 받는다.
+   * 건물이 없는 필지(도로·나대지)는 부를 이유가 없으니 거른다.
+   */
+  const needExpos = inside
+    .filter((p) => {
+      const dong = p.dong ?? ''
+      const jibun = (p.jibun ?? '').replace(/[^0-9-]/g, '').replace(/-$/, '')
+      if (!p.gu || !dong) return false
+      if (hp[`${p.gu}|${dong}|${jibun}`]) return false
+      const bun = Number(p.pnu.slice(11, 15))
+      const ji = Number(p.pnu.slice(15, 19))
+      return !!bi[`${p.gu}|${dong}|${pad(bun)}${pad(ji)}`]
+    })
+    .map((p) => p.pnu)
+  const expos = await getExposMany(needExpos, 40)
+
   const cards: ParcelCard[] = inside.map((p) => {
     const landM2 = Math.round(ringAreaM2(p.ring))
     const dong = p.dong ?? ''
@@ -181,14 +207,31 @@ export async function GET(request: Request) {
 
     const units = hpEntry?.units ?? []
     const unitPrices = units.map((u) => u[1]).filter((v) => v > 0)
-    const totalExclusive = units.reduce((s, u) => s + (u[0] || 0), 0)
+    /*
+     * 안분에 쓸 호별 전용면적.
+     * 공시가격이 있으면 그걸 쓰고(가격까지 함께 오므로), 없으면 전유부를 쓴다.
+     */
+    const ex = units.length ? null : (expos.get(p.pnu) ?? null)
+    const areas = units.length ? units.map((u) => u[0] || 0) : (ex?.map((u) => u[2]) ?? [])
+    const totalExclusive = areas.reduce((s, a) => s + a, 0)
     /*
      * 대지지분 안분 — 필지면적 × (그 호 전용면적 / 전체 전용면적 합).
      * 등기부상 대지권과 다를 수 있으므로 화면에서 "추정"이라고 밝힌다.
      */
+    /*
+     * 집합건물이면 안분하고, 아니면 필지 전체가 대지지분이다.
+     *
+     * 공시가격도 전유부도 없는데 건물은 있다 — 그건 단독·다가구·근생처럼
+     * 나뉘지 않은 건물이라는 뜻이다. 다가구는 여러 가구가 살아도 소유는
+     * 하나라 대지가 쪼개지지 않는다. 이걸 "모름"으로 두면 정비사업에서
+     * 제일 중요한 물건(단독주택)이 통째로 빠진다.
+     */
+    const whole = !totalExclusive && !!main
     const shares = totalExclusive
-      ? units.map((u) => (landM2 * (u[0] || 0)) / totalExclusive / PYEONG)
-      : []
+      ? areas.map((a) => (landM2 * a) / totalExclusive / PYEONG)
+      : whole
+        ? [landM2 / PYEONG]
+        : []
 
     const addr = `서울 ${p.gu ?? ''} ${dong} ${jibun}`.replace(/\s+/g, ' ').trim()
     return {
@@ -208,7 +251,14 @@ export async function GET(request: Request) {
       far: main?.far ?? null,
       bcr: main?.bcr ?? null,
       priceYear: hpEntry?.year ?? null,
-      unitCount: units.length,
+      unitCount: units.length || (ex?.length ?? 0) || (whole ? 1 : 0),
+      unitSource: units.length
+        ? ('price' as const)
+        : ex?.length
+          ? ('expos' as const)
+          : whole
+            ? ('whole' as const)
+            : ('none' as const),
       minUnitPrice: unitPrices.length ? Math.min(...unitPrices) : null,
       maxUnitPrice: unitPrices.length ? Math.max(...unitPrices) : null,
       landShareMinPyeong: shares.length ? Math.round(Math.min(...shares) * 100) / 100 : null,
@@ -232,7 +282,10 @@ export async function GET(request: Request) {
     // 건물이 잡힌 필지 — 세대수로 세면 근생·종교시설이 빠진다
     withBuilding: cards.filter((c) => c.purpose).length,
     withHouseholds: cards.filter((c) => c.households).length,
-    withPrice: cards.filter((c) => c.unitCount > 0).length,
+    withPrice: cards.filter((c) => c.unitSource === 'price').length,
+    withExpos: cards.filter((c) => c.unitSource === 'expos').length,
+    withWhole: cards.filter((c) => c.unitSource === 'whole').length,
+    withLandShare: cards.filter((c) => c.landShareMinPyeong != null).length,
     cards: cards.slice(0, 200),
     _meta: {
       source:
