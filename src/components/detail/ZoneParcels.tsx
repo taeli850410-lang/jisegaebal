@@ -14,6 +14,12 @@ import { useEffect, useState } from 'react'
  * 데이터베이스를 건드리지 않는다.
  */
 
+interface LinkTarget {
+  label: string
+  note: string
+  href: string
+}
+
 interface Card {
   pnu: string
   jibun: string
@@ -35,6 +41,7 @@ interface Card {
   landShareMaxPyeong: number | null
   unitSource: 'right' | 'price' | 'expos' | 'whole' | 'none'
   lastDeal: { date: string; price: number; typeLabel: string; landPyeong: number | null } | null
+  links: LinkTarget[]
   naverUrl: string
 }
 
@@ -51,6 +58,7 @@ export default function ZoneParcels({ zoneId }: { zoneId: string }) {
     withExpos: number
     withWhole: number
     withLandShare: number
+    zoneLinks: LinkTarget[]
     cards: Card[]
     unavailable?: string
   } | null>(null)
@@ -90,6 +98,32 @@ export default function ZoneParcels({ zoneId }: { zoneId: string }) {
 
   return (
     <>
+      {/* 매물로 가는 정문. 카드를 하나씩 눌러 확인하는 건 품이 너무 든다. */}
+      {data.zoneLinks?.length > 0 && (
+        <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+          <p className="text-[11px] font-bold text-emerald-900">지금 나와 있는 매물 보기</p>
+          <p className="mt-0.5 text-[10px] leading-relaxed text-emerald-700">
+            우리는 호가를 저장하지 않습니다. 아래는 그 매물이 올라와 있는 곳으로 가는 링크이며,
+            누르면 사용자의 브라우저가 이동합니다.
+          </p>
+          <div className="mt-2 flex flex-col gap-1">
+            {data.zoneLinks.map((l) => (
+              <a
+                key={l.label}
+                href={l.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={l.note}
+                className="flex items-center justify-between rounded-lg bg-white px-2.5 py-1.5 text-[12px] font-bold text-emerald-800 hover:bg-emerald-100"
+              >
+                <span className="min-w-0 truncate">{l.label}</span>
+                <span className="ml-2 shrink-0 text-[11px] font-normal text-emerald-500">↗</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[11px] text-gray-500">
           필지 <b className="text-gray-700">{data.total.toLocaleString()}</b>개 · 건물{' '}
@@ -126,15 +160,20 @@ export default function ZoneParcels({ zoneId }: { zoneId: string }) {
                     .join(' · ') || '건축물대장 기록 없음'}
                 </p>
               </div>
-              <a
-                href={c.naverUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100"
-                title="이 지번의 매물을 네이버 부동산에서 검색합니다"
-              >
-                매물 보기 ↗
-              </a>
+              <div className="flex shrink-0 gap-1">
+                {(c.links ?? []).map((l) => (
+                  <a
+                    key={l.label}
+                    href={l.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`${l.label} — ${l.note}`}
+                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100"
+                  >
+                    {l.label.replace('네이버 부동산', '네이버')}
+                  </a>
+                ))}
+              </div>
             </div>
 
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">

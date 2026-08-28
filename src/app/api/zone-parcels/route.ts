@@ -7,6 +7,7 @@ import { fetchTransactions } from '@/lib/server/molit'
 import { getExposMany } from '@/lib/server/expos'
 import { getLandRightsMany } from '@/lib/server/landRight'
 import { outerRings } from '@/lib/types'
+import { parcelLinks, searchName, zoneLinks, type LinkTarget } from '@/lib/listingLinks'
 
 /**
  * 구역 내 물건 카드 — GET /api/zone-parcels?id=<구역ID>
@@ -120,7 +121,12 @@ export interface ParcelCard {
   unitSource: 'right' | 'price' | 'expos' | 'whole' | 'none'
   /* ── 최근 실거래 ── */
   lastDeal: { date: string; price: number; typeLabel: string; landPyeong: number | null } | null
-  /** 네이버 부동산 지번 검색 — 데이터를 저장하지 않고 링크만 건다 */
+  /**
+   * 이 지번의 매물을 찾아보는 링크들.
+   * 우리 서버는 이 사이트들에 접속하지 않는다 — 주소 문자열만 만든다.
+   */
+  links: LinkTarget[]
+  /** 이전 화면과의 호환 — 첫 링크(네이버)를 그대로 둔다 */
   naverUrl: string
   eumUrl: string
 }
@@ -290,7 +296,8 @@ export async function GET(request: Request) {
       landShareMinPyeong: shares.length ? Math.round(Math.min(...shares) * 100) / 100 : null,
       landShareMaxPyeong: shares.length ? Math.round(Math.max(...shares) * 100) / 100 : null,
       lastDeal: dealByJibun.get(`${dong}|${jibun}`) ?? null,
-      naverUrl: `https://new.land.naver.com/search?sk=${encodeURIComponent(addr)}`,
+      links: parcelLinks(p.gu ?? '', dong, jibun),
+      naverUrl: parcelLinks(p.gu ?? '', dong, jibun)[0].href,
       eumUrl: 'https://www.eum.go.kr/web/ar/lu/luLandDet.jsp',
     }
   })
@@ -304,6 +311,12 @@ export async function GET(request: Request) {
   return NextResponse.json({
     zoneId: zone.id,
     zoneName: zone.name,
+    /* 지번마다 눌러 보는 건 품이 든다 — 구역 일대를 한 번에 여는 링크 */
+    zoneLinks: zoneLinks(
+      searchName(zone.name),
+      zone.center ?? [(zone.bbox[0] + zone.bbox[2]) / 2, (zone.bbox[1] + zone.bbox[3]) / 2],
+      zone.gu ?? null,
+    ),
     total: cards.length,
     // 건물이 잡힌 필지 — 세대수로 세면 근생·종교시설이 빠진다
     withBuilding: cards.filter((c) => c.purpose).length,
