@@ -5,6 +5,7 @@ import { getAllDevelops } from '@/lib/server/developStore'
 import { fetchParcels, hasVWorld, ringAreaM2 } from '@/lib/server/vworld'
 import { fetchTransactions } from '@/lib/server/molit'
 import { getExposMany } from '@/lib/server/expos'
+import { getLandRightsMany } from '@/lib/server/landRight'
 import { outerRings } from '@/lib/types'
 
 /**
@@ -110,12 +111,13 @@ export interface ParcelCard {
   landShareMaxPyeong: number | null
   /**
    * 대지지분을 어디서 냈나.
+   *   right  대지권등록부의 실제 호별 대지면적 (추정이 아니다)
    *   price  공동주택 공시가격의 호별 전용면적으로 안분
    *   expos  집합건축물대장 전유부의 호별 전용면적으로 안분
    *   whole  집합건물이 아니다 — 필지 전체가 곧 대지지분
    *   none   건물이 없거나 판단할 근거가 없다
    */
-  unitSource: 'price' | 'expos' | 'whole' | 'none'
+  unitSource: 'right' | 'price' | 'expos' | 'whole' | 'none'
   /* ── 최근 실거래 ── */
   lastDeal: { date: string; price: number; typeLabel: string; landPyeong: number | null } | null
   /** 네이버 부동산 지번 검색 — 데이터를 저장하지 않고 링크만 건다 */
@@ -192,7 +194,25 @@ export async function GET(request: Request) {
       return !!bi[`${p.gu}|${dong}|${pad(bun)}${pad(ji)}`]
     })
     .map((p) => p.pnu)
-  const expos = await getExposMany(needExpos, 40)
+  /*
+   * 대지권등록부부터 본다. 실제 값이라 안분 추정보다 우선한다.
+   * 건물이 있는 필지만 — 도로·나대지는 나눌 대지권이 없다.
+   */
+  const built = inside.filter((p) => {
+    const dong = p.dong ?? ''
+    if (!p.gu || !dong) return false
+    const bun = Number(p.pnu.slice(11, 15))
+    const ji = Number(p.pnu.slice(15, 19))
+    return !!bi[`${p.gu}|${dong}|${pad(bun)}${pad(ji)}`]
+  })
+  const rights = await getLandRightsMany(
+    built.map((p) => p.pnu),
+    40,
+  )
+  const expos = await getExposMany(
+    needExpos.filter((pnu) => !rights.has(pnu)),
+    20,
+  )
 
   const cards: ParcelCard[] = inside.map((p) => {
     const landM2 = Math.round(ringAreaM2(p.ring))
@@ -211,7 +231,8 @@ export async function GET(request: Request) {
      * 안분에 쓸 호별 전용면적.
      * 공시가격이 있으면 그걸 쓰고(가격까지 함께 오므로), 없으면 전유부를 쓴다.
      */
-    const ex = units.length ? null : (expos.get(p.pnu) ?? null)
+    const rg = rights.get(p.pnu) ?? null
+    const ex = rg || units.length ? null : (expos.get(p.pnu) ?? null)
     const areas = units.length ? units.map((u) => u[0] || 0) : (ex?.map((u) => u[2]) ?? [])
     const totalExclusive = areas.reduce((s, a) => s + a, 0)
     /*
@@ -226,12 +247,15 @@ export async function GET(request: Request) {
      * 하나라 대지가 쪼개지지 않는다. 이걸 "모름"으로 두면 정비사업에서
      * 제일 중요한 물건(단독주택)이 통째로 빠진다.
      */
-    const whole = !totalExclusive && !!main
-    const shares = totalExclusive
-      ? areas.map((a) => (landM2 * a) / totalExclusive / PYEONG)
-      : whole
-        ? [landM2 / PYEONG]
-        : []
+    const whole = !rg && !totalExclusive && !!main
+    const shares = rg
+      ? // 대지권등록부의 실제 값 — 안분하지 않는다
+        rg.map((u) => u[2] / PYEONG)
+      : totalExclusive
+        ? areas.map((a) => (landM2 * a) / totalExclusive / PYEONG)
+        : whole
+          ? [landM2 / PYEONG]
+          : []
 
     const addr = `서울 ${p.gu ?? ''} ${dong} ${jibun}`.replace(/\s+/g, ' ').trim()
     return {
@@ -251,14 +275,16 @@ export async function GET(request: Request) {
       far: main?.far ?? null,
       bcr: main?.bcr ?? null,
       priceYear: hpEntry?.year ?? null,
-      unitCount: units.length || (ex?.length ?? 0) || (whole ? 1 : 0),
-      unitSource: units.length
-        ? ('price' as const)
-        : ex?.length
-          ? ('expos' as const)
-          : whole
-            ? ('whole' as const)
-            : ('none' as const),
+      unitCount: rg?.length || units.length || (ex?.length ?? 0) || (whole ? 1 : 0),
+      unitSource: rg
+        ? ('right' as const)
+        : units.length
+          ? ('price' as const)
+          : ex?.length
+            ? ('expos' as const)
+            : whole
+              ? ('whole' as const)
+              : ('none' as const),
       minUnitPrice: unitPrices.length ? Math.min(...unitPrices) : null,
       maxUnitPrice: unitPrices.length ? Math.max(...unitPrices) : null,
       landShareMinPyeong: shares.length ? Math.round(Math.min(...shares) * 100) / 100 : null,
@@ -283,6 +309,7 @@ export async function GET(request: Request) {
     withBuilding: cards.filter((c) => c.purpose).length,
     withHouseholds: cards.filter((c) => c.households).length,
     withPrice: cards.filter((c) => c.unitSource === 'price').length,
+    withRight: cards.filter((c) => c.unitSource === 'right').length,
     withExpos: cards.filter((c) => c.unitSource === 'expos').length,
     withWhole: cards.filter((c) => c.unitSource === 'whole').length,
     withLandShare: cards.filter((c) => c.landShareMinPyeong != null).length,
@@ -290,7 +317,7 @@ export async function GET(request: Request) {
     _meta: {
       source:
         '필지·공시지가: 국토교통부 연속지적도(V-World) / 건축물: 건축물대장 / 공시가격: 공동주택 공시가격 / 실거래: 국토교통부',
-      note: '대지지분은 필지면적을 전용면적 비율로 안분한 추정값이며 등기부상 대지권과 다를 수 있습니다. 호가(매물 가격)는 저장하지 않고 네이버 부동산 검색으로 연결합니다.',
+      note: '대지지분은 대지권등록부(V-World 소유정보)의 실제 값을 우선 씁니다. 그 값이 없는 지번만 전용면적 비율로 안분한 추정값이며, 집합건물이 아닌 필지는 필지 전체가 대지지분입니다. 호가(매물 가격)는 저장하지 않고 네이버 부동산 검색으로 연결합니다.',
     },
   })
 }
