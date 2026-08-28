@@ -18,6 +18,7 @@ import {
   type SortKey,
 } from '@/lib/findFilter'
 import type { ZoneDeals } from './ZoneDealCard'
+import FindTrend from './FindTrend'
 
 /**
  * 매물 찾기.
@@ -442,6 +443,8 @@ export default function FindPanel({
           </Popover>
         </div>
       </div>
+
+      {gu && !loading && !err && <FindTrend items={filtered} />}
 
       {/* ── 구역별 / 매물별 ── */}
       <div className="mt-4 flex border-b border-gray-100 px-4">
