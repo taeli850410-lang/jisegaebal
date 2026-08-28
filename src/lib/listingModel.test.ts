@@ -24,24 +24,19 @@ test('추정 프리미엄 = 매매가 − 추정 감정가', () => {
 })
 
 test('초기투자금에 취득세를 포함한다 — 빼놓으면 실제보다 작게 나온다', () => {
-  const withTax = computeMetrics(7 * 억, 3.58 * 억, 6.74)
-  const noTax = computeMetrics(7 * 억, 3.58 * 억, 6.74, {
-    ...DEFAULT_ASSUMPTIONS,
-    acquisitionTaxRate: 0,
-  })
-  assert.ok(withTax.initialCash! > noTax.initialCash!)
-  // 7억의 4.6% = 3,220만원 — 판단이 바뀌는 크기다
-  assert.equal(withTax.initialCash! - noTax.initialCash!, 32_200_000)
+  const m = computeMetrics(7 * 억, 3.58 * 억, 6.74, DEFAULT_ASSUMPTIONS, '다세대주택', 42.96)
+  const leverage = Math.round(3.58 * 억 * DEFAULT_ASSUMPTIONS.leverageRate)
+  assert.equal(m.initialCash, 7 * 억 + m.tax! - leverage)
+  assert.ok(m.tax! > 0)
 })
 
 test('레버리지는 공시가에 비율을 곱한다', () => {
   const m = computeMetrics(7 * 억, 3.58 * 억, 6.74, {
     ...DEFAULT_ASSUMPTIONS,
-    acquisitionTaxRate: 0,
     leverageRate: 0.64,
   })
-  // 7억 − 3.58억×64% = 4.71억
-  assert.equal(Math.round(m.initialCash! / 1_000_000) / 100, 4.71)
+  // 7억 + 취득세 − 3.58억×64%
+  assert.equal(m.initialCash, 7 * 억 + m.tax! - Math.round(3.58 * 억 * 0.64))
 })
 
 test('배수를 바꾸면 감정가와 프리미엄이 함께 움직인다', () => {
@@ -106,4 +101,42 @@ test('프리미엄 정렬에서 값 없는 건은 뒤로 간다', () => {
     { ...base, id: 'b' },
   ]
   assert.equal(sortListings(xs, 'premium')[1].id, 'a')
+})
+
+test('취득세를 유형별로 가른다 — 근생이면 4.6%, 주택이면 훨씬 낮다', () => {
+  const house = computeMetrics(7 * 억, 3.58 * 억, 6.74, DEFAULT_ASSUMPTIONS, '다세대주택', 42.96)
+  const non = computeMetrics(7 * 억, 3.58 * 억, 6.74, DEFAULT_ASSUMPTIONS, '기타제1종근린생활시설', 42.96)
+  assert.equal(non.taxRatePct, 4.6)
+  assert.ok(house.taxRatePct! < 2)
+  assert.ok(non.tax! - house.tax! > 19_000_000)
+})
+
+test('공시가를 모르면 초기투자금을 내지 않는다 — 0으로 두면 전액 현금이 된다', () => {
+  const m = computeMetrics(7 * 억, null, 6.74, DEFAULT_ASSUMPTIONS, '기타제1종근린생활시설', 42.96)
+  assert.equal(m.needsPublicPrice, true)
+  assert.equal(m.initialCash, null)
+  assert.equal(m.appraisal, null)
+  assert.equal(m.premium, null)
+  // 취득세는 공시가 없이도 나온다 — 매매가만 있으면 계산된다
+  assert.ok(m.tax! > 0)
+})
+
+test('공시가가 있으면 초기투자금이 나온다', () => {
+  const m = computeMetrics(7 * 억, 3.58 * 억, 6.74, DEFAULT_ASSUMPTIONS, '다세대주택', 42.96)
+  assert.equal(m.needsPublicPrice, false)
+  assert.ok(m.initialCash! > 0)
+})
+
+test('다주택 중과를 가정에 반영한다', () => {
+  const one = computeMetrics(7 * 억, 3.58 * 억, 6.74, DEFAULT_ASSUMPTIONS, '다세대주택', 42.96)
+  const three = computeMetrics(
+    7 * 억,
+    3.58 * 억,
+    6.74,
+    { ...DEFAULT_ASSUMPTIONS, houseCount: 3, adjusted: true },
+    '다세대주택',
+    42.96,
+  )
+  assert.ok(three.initialCash! > one.initialCash!)
+  assert.equal(three.taxRatePct, 12.4)
 })

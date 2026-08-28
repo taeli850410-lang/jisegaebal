@@ -322,16 +322,25 @@ export default function ZoneListings({
             className="w-12 rounded border border-gray-200 px-1 py-0.5 text-right tabular-nums"
           />
         </label>
+<label className="flex items-center gap-1">
+          주택 수
+          <select
+            value={a.houseCount}
+            onChange={(e) => setA({ ...a, houseCount: Number(e.target.value) as 1 | 2 | 3 })}
+            className="rounded border border-gray-200 px-1 py-0.5"
+          >
+            <option value={1}>1주택</option>
+            <option value={2}>2주택</option>
+            <option value={3}>3주택+</option>
+          </select>
+        </label>
         <label className="flex items-center gap-1">
-          취득세
           <input
-            type="number"
-            step={0.1}
-            value={a.acquisitionTaxRate}
-            onChange={(e) => setA({ ...a, acquisitionTaxRate: Number(e.target.value) })}
-            className="w-11 rounded border border-gray-200 px-1 py-0.5 text-right tabular-nums"
+            type="checkbox"
+            checked={a.adjusted}
+            onChange={(e) => setA({ ...a, adjusted: e.target.checked })}
           />
-          %
+          조정대상지역
         </label>
       </div>
 
@@ -376,7 +385,14 @@ export default function ZoneListings({
               </thead>
               <tbody>
                 {list.map((l) => {
-                  const m = computeMetrics(l.price, l.publicPrice ?? null, l.landSharePyeong ?? null, a)
+                  const m = computeMetrics(
+                    l.price,
+                    l.publicPrice ?? null,
+                    l.landSharePyeong ?? null,
+                    a,
+                    l.purpose,
+                    l.exclusiveAr,
+                  )
                   return (
                     <tr key={l.id} className="border-t border-gray-50">
                       <td className="py-1.5">
@@ -395,15 +411,37 @@ export default function ZoneListings({
                         {eok(l.price)}
                       </td>
                       <td className="py-1.5 text-right tabular-nums">
-                        {eok(m.initialCash)}
-                        {m.initialCashPct != null && (
-                          <span className="block text-[9px] text-gray-400">
-                            {m.initialCashPct}%
+                        {m.needsPublicPrice ? (
+                          /* 공시가가 없으면 레버리지를 못 낸다. 0 으로 두면
+                             "전액 현금"이라는 전혀 다른 숫자가 나온다. */
+                          <span
+                            className="text-[10px] font-bold text-amber-600"
+                            title="공시가격이 없어 레버리지를 산정할 수 없습니다. 근린생활시설 등은 공동주택가격 대상이 아닙니다."
+                          >
+                            산정 불가
                           </span>
+                        ) : (
+                          <>
+                            {eok(m.initialCash)}
+                            {m.initialCashPct != null && (
+                              <span className="block text-[9px] text-gray-400">
+                                {m.initialCashPct}%
+                              </span>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="py-1.5 text-right tabular-nums text-gray-500">
-                        {eok(l.publicPrice)}
+                        {l.publicPrice ? (
+                          eok(l.publicPrice)
+                        ) : (
+                          <span
+                            className="text-[10px] text-amber-600"
+                            title="공동주택 공시가격 대상이 아니거나 아직 등재되지 않았습니다"
+                          >
+                            없음
+                          </span>
+                        )}
                       </td>
                       <td className="py-1.5 text-right tabular-nums">
                         {l.landSharePyeong ? `${l.landSharePyeong}평` : '—'}
@@ -413,7 +451,11 @@ export default function ZoneListings({
                           (m.premium ?? 0) < 0 ? 'text-emerald-600' : 'text-rose-500'
                         }`}
                       >
-                        {eok(m.premium)}
+                        {m.premium == null ? (
+                          <span className="text-[10px] font-normal text-amber-600">산정 불가</span>
+                        ) : (
+                          eok(m.premium)
+                        )}
                       </td>
                       <td className="py-1.5 pl-1 text-right">
                         <button
@@ -437,9 +479,12 @@ export default function ZoneListings({
       )}
 
       <p className="mt-2 text-[10px] leading-relaxed text-gray-400">
-        <b>초투</b> = 매매가 + 취득세 − 공시가×레버리지. <b>추정 감정가</b> = 공시가×배수,{' '}
+<b>초투</b> = 매매가 + 취득세 − 공시가×레버리지. <b>추정 감정가</b> = 공시가×배수,{' '}
         <b>추정 P</b> = 매매가 − 추정 감정가. 전부 위 가정값에 따른 산수이며 조합이 확정한 감정가와
-        다릅니다. 공시가·대지지분·용도는 공공데이터(공동주택 공시가격·대지권등록부·건축물대장)에서
+        다릅니다. <b>취득세는 대장 용도로 갈립니다</b> — 근린생활시설·토지는 4.6%, 주택은 가액·면적·
+        주택수에 따라 1.1~13.4% 입니다(지방세법). 광고에 주택으로 적혀 있어도 대장이 근생이면
+        근생 세율입니다. <b>공시가격이 없으면 초투·감정가·추정 P를 내지 않습니다</b> — 0으로
+        계산하면 전혀 다른 숫자가 됩니다. 공시가·대지지분·용도는 공공데이터(공동주택 공시가격·대지권등록부·건축물대장)에서
         자동으로 붙입니다. 본 서비스는 중개·감정평가·투자자문을 제공하지 않습니다.
       </p>
     </>

@@ -1,3 +1,6 @@
+// node --test 는 타입 스트리핑만 하므로 확장자가 있어야 해석된다
+import { acquisitionTax, kindFromPurpose } from '../config/tax.ts'
+
 /**
  * 매물 지표 계산.
  *
@@ -20,14 +23,17 @@ export interface Assumptions {
   appraisalMultiple: number
   /** 레버리지 비율 — 공시가 대비 대출·전세로 조달 가능하다고 보는 몫 */
   leverageRate: number
-  /** 취득세율 (%) */
-  acquisitionTaxRate: number
+  /** 취득 후 보유 주택 수 (중과 판정) */
+  houseCount: 1 | 2 | 3
+  /** 조정대상지역 여부 */
+  adjusted: boolean
 }
 
 export const DEFAULT_ASSUMPTIONS: Assumptions = {
   appraisalMultiple: 1.7,
   leverageRate: 0.6,
-  acquisitionTaxRate: 4.6,
+  houseCount: 1,
+  adjusted: false,
 }
 
 export interface ListingMetrics {
@@ -35,12 +41,23 @@ export interface ListingMetrics {
   appraisal: number | null
   /** 추정 프리미엄 = 매매가 − 추정 감정가 */
   premium: number | null
-  /** 초기투자금 = 매매가 + 취득세 − 레버리지 */
+  /**
+   * 초기투자금 = 매매가 + 취득세 − 레버리지.
+   *
+   * 공시가를 모르면 레버리지를 못 낸다. 그때 0 으로 두면 "전액 현금"이라는
+   * 전혀 다른 숫자가 나오므로 아예 내지 않는다 —
+   * 실제로 서계동 101호가 그 경우였다(근생이라 공동주택가격 대상이 아니다).
+   */
   initialCash: number | null
-  /** 초기투자금이 매매가의 몇 % 인가 */
   initialCashPct: number | null
+  /** 취득세 (원) — 유형·가액·면적·주택수로 갈린다 */
+  tax: number | null
+  taxRatePct: number | null
+  taxNote: string | null
   /** 대지 평당 매매가 = 매매가 / 대지지분 */
   pricePerLandPyeong: number | null
+  /** 공시가가 없어 감정가·프리미엄·초투를 못 낸 경우 */
+  needsPublicPrice: boolean
 }
 
 export function computeMetrics(
@@ -48,23 +65,43 @@ export function computeMetrics(
   publicPrice: number | null,
   landSharePyeong: number | null,
   a: Assumptions = DEFAULT_ASSUMPTIONS,
+  /** 건축물대장 주용도 — 주택인지 근생인지로 취득세가 갈린다 */
+  purpose?: string | null,
+  exclusiveAr?: number | null,
 ): ListingMetrics {
   const appraisal = publicPrice ? Math.round(publicPrice * a.appraisalMultiple) : null
   const premium = price && appraisal ? price - appraisal : null
+
   /*
-   * 취득세를 빼놓으면 초기투자금이 실제보다 작게 나온다.
-   * 7억짜리면 4.6% 만 해도 3,220만원이다 — 사람 판단이 바뀌는 크기다.
+   * 취득세를 4.6% 로 일괄 적용하면 틀린다. 그건 주택이 아닌 것의 세율이다.
+   * 7억짜리를 주택으로 사면 약 1.8%, 근생이면 4.6% — 1,900만원 넘게 벌어져
+   * 초기투자금 판단이 뒤집힌다. 광고 문구가 아니라 대장 용도로 가른다.
    */
-  const tax = price ? Math.round(price * (a.acquisitionTaxRate / 100)) : 0
-  const leverage = publicPrice ? Math.round(publicPrice * a.leverageRate) : 0
-  const initialCash = price ? price + tax - leverage : null
+  const t = price
+    ? acquisitionTax({
+        kind: kindFromPurpose(purpose),
+        price,
+        exclusiveAr,
+        houseCount: a.houseCount,
+        adjusted: a.adjusted,
+      })
+    : null
+
+  const needsPublicPrice = !publicPrice
+  const leverage = publicPrice ? Math.round(publicPrice * a.leverageRate) : null
+  const initialCash =
+    price && t && leverage != null ? price + t.amount - leverage : null
+
   return {
     appraisal,
     premium,
     initialCash,
     initialCashPct: price && initialCash ? Math.round((initialCash / price) * 100) : null,
-    pricePerLandPyeong:
-      price && landSharePyeong ? Math.round(price / landSharePyeong) : null,
+    tax: t?.amount ?? null,
+    taxRatePct: t?.ratePct ?? null,
+    taxNote: t?.note ?? null,
+    pricePerLandPyeong: price && landSharePyeong ? Math.round(price / landSharePyeong) : null,
+    needsPublicPrice,
   }
 }
 
@@ -119,7 +156,15 @@ export function sortListings(
   key: ListingSort,
   a: Assumptions = DEFAULT_ASSUMPTIONS,
 ): Listing[] {
-  const m = (l: Listing) => computeMetrics(l.price, l.publicPrice ?? null, l.landSharePyeong ?? null, a)
+  const m = (l: Listing) =>
+    computeMetrics(
+      l.price,
+      l.publicPrice ?? null,
+      l.landSharePyeong ?? null,
+      a,
+      l.purpose,
+      l.exclusiveAr,
+    )
   const ys = [...xs]
   switch (key) {
     case 'price':
