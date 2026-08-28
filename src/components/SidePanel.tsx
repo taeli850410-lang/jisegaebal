@@ -5,6 +5,7 @@ import { getFavorites, getViews, subscribeStore } from '@/lib/userStore'
 import ZoneDealCard, { type ZoneDeals } from './panels/ZoneDealCard'
 import HotPanel from './panels/HotPanel'
 import CourtAuctionPanel from './panels/CourtAuctionPanel'
+import FindPanel from './panels/FindPanel'
 import {
   Empty,
   PanelHint,
@@ -55,7 +56,7 @@ const TITLES: Record<PanelKey, string> = {
   favorites: '관심 구역',
   new: '신규 구역',
   transactions: '지역별 실거래',
-  listings: '매물',
+  listings: '매물 찾기',
   auctions: '경매',
 }
 
@@ -117,7 +118,7 @@ export default function SidePanel({
   /* 자치구 목록 — 실거래·인기·경매에서 공용 */
   useEffect(() => {
     if (gus.length) return
-    if (panel !== 'transactions' && panel !== 'hot' && panel !== 'auctions') return
+    if (!['transactions', 'hot', 'auctions', 'listings'].includes(panel)) return
     fetch('/api/develops/browse?meta=gu')
       .then((r) => r.json())
       .then((j) => setGus(j.gus ?? []))
@@ -335,8 +336,13 @@ export default function SidePanel({
           <p className="px-4 py-8 text-center text-sm text-gray-400">불러오는 중…</p>
         )}
 
-        {panel === 'listings' && !loading && (
-          <Empty text={"매물 데이터는 아직 연동되지 않았습니다.\n중개사 매물 등록 또는 제휴 연동이 필요합니다."} />
+        {panel === 'listings' && (
+          <FindPanel
+            gus={gus}
+            gu={gu === ALL_GU ? '' : gu}
+            guSelect={GuSelect}
+            onSelectZone={selectById}
+          />
         )}
         {panel === 'auctions' && (
           <CourtAuctionPanel gu={gu === ALL_GU ? '' : gu} guSelect={GuSelect} />
