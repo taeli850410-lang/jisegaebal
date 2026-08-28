@@ -18,11 +18,17 @@ import { join } from 'node:path'
  * 건축물대장은 거의 안 바뀌므로 지번 단위로 디스크에 캐시한다.
  */
 
-const CACHE_PATH = join(process.cwd(), 'data', 'expos-cache.json')
+const CACHE_PATH = join(process.cwd(), 'data', 'expos-cache-v2.json')
 const BASE = 'https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo'
 
-/** 한 지번의 호별 전용면적 — [호명, 층, 전용면적㎡] */
-export type ExposUnits = [string, number, number][]
+/**
+ * 한 지번의 호별 정보 — [호명, 층, 전용면적㎡, 주용도]
+ *
+ * 주용도가 호마다 다르다는 게 핵심이다. 서계동 245-11 은 건물 대표용도가
+ * 공동주택인데 101호만 제1종근린생활시설이다. 건물 단위로만 보면
+ * 그 호가 주택이 아니라는 걸 놓친다 — 정비사업 분양자격이 갈리는 지점이다.
+ */
+export type ExposUnits = [string, number, number, string][]
 
 type CacheValue = ExposUnits | null
 let cache: Record<string, CacheValue> | null = null
@@ -88,7 +94,7 @@ async function fetchOne(pnu: string): Promise<CacheValue> {
      * 대지지분 안분에 쓰는 건 전유면적이므로 전유만 골라 호별로 더한다.
      * (전유가 두 줄로 쪼개져 오는 건물이 있어 합산한다)
      */
-    const byHo = new Map<string, { flr: number; area: number }>()
+    const byHo = new Map<string, { flr: number; area: number; purpose: string }>()
     for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
       const it = m[1]
       if (tag(it, 'exposPubuseGbCdNm') !== '전유') continue
@@ -101,11 +107,19 @@ async function fetchOne(pnu: string): Promise<CacheValue> {
       const flr = tag(it, 'flrGbCdNm') === '지하' ? -Math.abs(raw) : raw
       const cur = byHo.get(ho)
       if (cur) cur.area += area
-      else byHo.set(ho, { flr, area })
+      else byHo.set(ho, { flr, area, purpose: tag(it, 'mainPurpsCdNm') ?? '' })
     }
     if (!byHo.size) return null
     return [...byHo.entries()]
-      .map(([ho, v]) => [ho, v.flr, Math.round(v.area * 100) / 100] as [string, number, number])
+      .map(
+        ([ho, v]) =>
+          [ho, v.flr, Math.round(v.area * 100) / 100, v.purpose] as [
+            string,
+            number,
+            number,
+            string,
+          ],
+      )
       .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
   } catch {
     return null
