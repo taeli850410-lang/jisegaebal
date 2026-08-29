@@ -6,7 +6,7 @@ import { getAllDevelops } from '@/lib/server/developStore'
 import { getLandRightsMany } from '@/lib/server/landRight'
 import { getExposMany } from '@/lib/server/expos'
 import { geocodeMany } from '@/lib/server/geocode'
-import { fetchParcels } from '@/lib/server/vworld'
+import { fetchParcels, ringAreaM2 } from '@/lib/server/vworld'
 import { getPublicPrice } from '@/lib/server/housePrice'
 import { getBuildingIndex, buildingIndexStatus } from '@/lib/server/buildingIndex'
 import { resolveRightsDate } from '@/lib/rightsDate'
@@ -170,6 +170,7 @@ export async function GET(request: Request) {
    * 좌표는 위에서 이미 구했으니 그 자리의 지적도에서 필지를 집으면 된다.
    */
   let pnu = q.get('pnu')
+  let parcelAreaM2: number | null = null
   if (!pnu && pt) {
     const d = 0.0006 // 약 60m — 한 필지를 덮기에 충분하고 응답도 가볍다
     const near = await fetchParcels([pt[0] - d, pt[1] - d, pt[0] + d, pt[1] + d])
@@ -179,7 +180,11 @@ export async function GET(request: Request) {
       const hit =
         near.find((f) => f.jibun.replace(/[^0-9-]/g, '') === want) ??
         near.find((f) => f.jibun.startsWith(want))
-      if (hit) pnu = hit.pnu
+      if (hit) {
+        pnu = hit.pnu
+        /* 필지면적을 챙겨 둔다 — 대지권 조회가 실패해도 나눌 총면적이 있어야 한다 */
+        parcelAreaM2 = Math.round(ringAreaM2(hit.ring))
+      }
     }
   }
   /*
@@ -240,10 +245,25 @@ export async function GET(request: Request) {
             Math.abs(d.exclusiveArea - matchedUnit.area) <= 0.5,
         ) ?? null)
       : null
+  /*
+   * 근거를 하나라도 더 잇는다.
+   *
+   * 전유부 조회와 호파인더가 동시에 실패한 적이 있다. 그때 "확인 불가"가
+   * 나갔는데, 정작 공시가격은 나왔다 — 호별 전용면적 목록을 이미 갖고
+   * 있었다는 뜻이다. 있는 걸 안 쓰고 포기하면 안 된다.
+   *
+   * 총면적도 마찬가지다. 대지권 자료가 없으면 지적도 필지면적을 쓴다.
+   * 구역 필지 화면이 하는 것과 같은 방식이라 두 화면의 값이 어긋나지 않는다.
+   */
+  const unitAreaList = ex?.length
+    ? ex.map((u) => u[2])
+    : units.length
+      ? units.map((u) => u[0])
+      : null
   const share = landShareOf({
     unitArea: matchedUnit?.area ?? input.exclusiveAr,
-    allUnitAreas: ex?.length ? ex.map((u) => u[2]) : null,
-    totalLandM2,
+    allUnitAreas: unitAreaList,
+    totalLandM2: totalLandM2 ?? parcelAreaM2,
     dealLandM2: myDeal?.landShareArea ?? null,
     buildingDeals: liveDeals.map((d) => ({ area: d.exclusiveArea, landM2: d.landShareArea! })),
   })

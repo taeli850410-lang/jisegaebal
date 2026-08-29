@@ -83,3 +83,22 @@ test('근거가 없으면 숫자를 만들지 않는다', () => {
   assert.equal(r.pyeong, null)
   assert.match(r.note, /등기부등본/)
 })
+
+test('한쪽 조회가 실패해도 남은 근거로 낸다', () => {
+  /*
+   * 프로덕션에서 전유부와 호파인더가 동시에 실패한 적이 있다.
+   * 그때 "확인 불가"가 나갔는데 공시가격은 나왔다 — 호별 전용면적 목록을
+   * 이미 갖고 있었다는 뜻이다. 있는 걸 안 쓰고 포기하면 안 된다.
+   */
+  const r = landShareOf({
+    unitArea: 44.48,
+    allUnitAreas: SEOGYE_AREAS, // 공시가격에서 온 목록
+    totalLandM2: 99.25, // 대지권이 없어 지적도 필지면적을 썼다
+  })
+  assert.equal(r.basis, 'proportional')
+  assert.ok(r.pyeong! > 0)
+  // 대지권 합(109.83)이 아니라 지적면적(99.25)이라 실거래보다 작게 나온다.
+  // 그래도 "모름"보다 낫고, 추정이라고 밝힌다.
+  assert.ok(r.m2! < 22.27)
+  assert.match(r.note, /추정치/)
+})
