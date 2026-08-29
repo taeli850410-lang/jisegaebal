@@ -59,11 +59,12 @@ const nextConfig: NextConfig = {
      * 구역 조회가 통째로 비고, 공시가·지오코딩 캐시도 안 실렸다.
      * 화면에는 "없음"으로 보이니 정상처럼 읽힌다 — 그게 더 나쁘다.
      *
-     * building-slim.json 은 106MB 원본을 쓰는 필드만 남겨 32MB 로 줄인 것이다
-     * (scripts/build-slim-index.mjs). 콜드스타트 파싱이 2.2초에서 1.0초로 준다.
+     * building-slim.json.gz 는 106MB 원본에서 쓰는 필드만 남겨 gzip 한 것이다
+     * (scripts/build-slim-index.mjs). 8MB 라 저장소에 넣을 수 있고, 푸는 데 90ms,
+     * 51만 지번이 1.05초에 뜬다.
      */
     '/api/verify': [
-      './data/building-slim.json',
+      './data/building-slim.json.gz',
       './data/house-price-cache.json',
       './data/develops.seoul.json',
       './data/stages.seoul.json',
@@ -71,7 +72,7 @@ const nextConfig: NextConfig = {
       './data/jibun-cache.json',
     ],
     '/api/zone-parcels': [
-      './data/building-slim.json',
+      './data/building-slim.json.gz',
       './data/house-price-cache.json',
       './data/develops.seoul.json',
       './data/stages.seoul.json',
