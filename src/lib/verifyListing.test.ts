@@ -65,9 +65,20 @@ test('주택이 아니면 공시가격 없음을 문제 삼지 않는다', () =>
   assert.ok(!has(f, 'no-public-price'))
 })
 
-test('대지지분 근거를 함께 밝힌다', () => {
-  const f = verifyListing({}, { landSharePyeong: 8.13, landShareSource: 'right' })
-  assert.match(find(f, 'land-share')!.detail, /대지권등록부/)
+test('대지지분 근거를 함께 밝힌다 — 산정한 쪽이 붙인 꼬리표를 그대로 쓴다', () => {
+  /*
+   * 예전엔 여기서 'right' 를 "대지권등록부"라고 옮겼는데, 그 출처가 실은
+   * 필지를 호수로 균등분할한 값이었다. 판정문이 근거를 지어내면 안 된다.
+   * 이제는 landShareOf 가 붙인 꼬리표를 받아 그대로 적는다.
+   */
+  const f = verifyListing(
+    {},
+    { landSharePyeong: 6.74, landShareLabel: '실거래 신고' },
+  )
+  assert.match(find(f, 'land-share')!.detail, /실거래 신고/)
+
+  const g = verifyListing({}, { landSharePyeong: 6.09, landShareLabel: '전용면적 비례 추정' })
+  assert.match(find(g, 'land-share')!.detail, /비례 추정/)
 })
 
 test('지하 물건은 따로 짚는다', () => {

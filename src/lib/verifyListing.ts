@@ -46,6 +46,13 @@ export interface ListingFacts {
   /** 대지권등록부/추정 대지지분 (평) */
   landSharePyeong?: number | null
   landShareSource?: 'right' | 'price' | 'expos' | 'whole' | 'none'
+  /*
+   * 대지지분을 어떤 근거로 냈는지 한 문장으로.
+   *
+   * 판정 목록과 아래 상자가 같은 숫자를 두고 다른 말을 하면 안 된다.
+   * landShareOf 가 만든 꼬리표를 그대로 받아 쓴다.
+   */
+  landShareLabel?: string | null
   /** 공동주택 공시가격 (원) */
   publicPrice?: number | null
   /** 그 지번에서 확인된 호별 전용면적 목록 (㎡) */
@@ -200,11 +207,8 @@ export function verifyListing(input: ListingInput, facts: ListingFacts): Finding
      정비사업에서 권리가액은 대지지분이 좌우한다. */
   if (facts.landSharePyeong) {
     const src =
-      facts.landShareSource === 'right'
-        ? '대지권등록부'
-        : facts.landShareSource === 'whole'
-          ? '집합건물이 아니어서 필지 전체'
-          : '전용면적 안분 추정'
+      facts.landShareLabel ??
+      (facts.landShareSource === 'whole' ? '집합건물이 아니어서 필지 전체' : '추정')
     out.push({
       code: 'land-share',
       level: 'ok',

@@ -5,9 +5,14 @@ import { getAllDevelops } from '@/lib/server/developStore'
 import { getLandRightsMany } from '@/lib/server/landRight'
 import { getExposMany } from '@/lib/server/expos'
 import { geocodeMany } from '@/lib/server/geocode'
+import { fetchParcels } from '@/lib/server/vworld'
+import { getPublicPrice } from '@/lib/server/housePrice'
 import { resolveRightsDate } from '@/lib/rightsDate'
 import { verifyListing, verdict, type ListingFacts } from '@/lib/verifyListing'
 import { outerRings } from '@/lib/types'
+import { hasHofinder, hofinderVerify } from '@/lib/server/hofinder'
+import { crossCheck, crossVerdict } from '@/lib/crossCheck'
+import { landShareOf } from '@/lib/landShare'
 
 /**
  * 매물 검증 — GET /api/verify?gu=..&dong=..&jibun=..&area=..&floor=..&type=..&ho=..
@@ -77,6 +82,24 @@ export async function GET(request: Request) {
 
   const { bi, hp } = loadIndexes()
 
+  /*
+   * 호파인더에 같은 물건을 동시에 물어본다.
+   *
+   * 우리 조회(지오코딩·대지권·전유부)도 네트워크라 기다리는 시간이 겹친다.
+   * 그래서 나란히 띄우면 응답이 사실상 안 늦는다.
+   * 여기서 await 하지 않는다 — 맨 끝에서 받는다.
+   */
+  const hofinderP = hasHofinder()
+    ? hofinderVerify({
+        gu,
+        dong,
+        jibun,
+        floor: input.floor,
+        exclusiveAr: input.exclusiveAr,
+        price: input.price,
+      })
+    : Promise.resolve(null)
+
   /* ── 지번 → 좌표 → 어느 구역인가 ── */
   const addr = `서울 ${gu} ${dong} ${jibun}`
   const pt = (await geocodeMany([addr], 3)).get(addr) ?? null
@@ -106,31 +129,71 @@ export async function GET(request: Request) {
    */
   const wantBasement = typeof input.floor === 'number' && input.floor < 0
   const pool = units.filter((u) => u[2] === wantBasement)
-  const matched =
+  /*
+   * 전용면적이 가장 가까운 호를 고르되, 1㎡ 넘게 벌어지면 포기한다.
+   *
+   * 이 가드가 없어서 42.96㎡ 근생에 44.48㎡ 호의 공시가 3.58억을 붙였다.
+   * 벤치마크가 낸 것과 똑같은 오류다 — "가장 가까운 값"은 "맞는 값"이 아니다.
+   */
+  const nearest =
     input.exclusiveAr && pool.length
       ? pool.reduce((a, b) =>
           Math.abs(b[0] - input.exclusiveAr!) < Math.abs(a[0] - input.exclusiveAr!) ? b : a,
         )
       : null
+  const matched =
+    nearest && input.exclusiveAr && Math.abs(nearest[0] - input.exclusiveAr) <= 1 ? nearest : null
+
+  /*
+   * 미리 받아둔 캐시에 이 지번이 없을 수 있다. 캐시는 구역 단위로 훑어 채운
+   * 것이라 구역 밖이나 나중에 물어본 지번은 빠져 있다.
+   *
+   * 그때 "공시가 없음"으로 답하면 근생이라 정말 없는 것과 구별이 안 된다.
+   * 그래서 한 번 직접 물어본다 — getPublicPrice 가 캐시 미스면 조회한다.
+   */
+  let livePrice: number | null = null
+  if (!matched && input.exclusiveAr) {
+    livePrice = (await getPublicPrice(gu, dong, jibun, input.exclusiveAr, input.floor))?.price ?? null
+  }
 
   /* ── 대지지분 ── */
   let landSharePyeong: number | null = null
   let landShareSource: ListingFacts['landShareSource'] = 'none'
-  const pnu = q.get('pnu')
+  /*
+   * PNU 가 있어야 전유부·대지권을 부를 수 있다.
+   *
+   * 처음엔 호출한 쪽이 넘겨주기를 기대했는데, 정작 화면은 지번만 넣고 부른다.
+   * 그래서 호·용도·대지지분이 전부 빈 채로 나갔다 — 호파인더와 대조해 보고서야
+   * 드러났다. 지번만 받아도 우리가 알아낸다.
+   *
+   * 좌표는 위에서 이미 구했으니 그 자리의 지적도에서 필지를 집으면 된다.
+   */
+  let pnu = q.get('pnu')
+  if (!pnu && pt) {
+    const d = 0.0006 // 약 60m — 한 필지를 덮기에 충분하고 응답도 가볍다
+    const near = await fetchParcels([pt[0] - d, pt[1] - d, pt[0] + d, pt[1] + d])
+    if (near?.length) {
+      /* 지적도 jibun 은 "245-11대" 처럼 지목이 붙어 온다 */
+      const want = jibun.replace(/[^0-9-]/g, '')
+      const hit =
+        near.find((f) => f.jibun.replace(/[^0-9-]/g, '') === want) ??
+        near.find((f) => f.jibun.startsWith(want))
+      if (hit) pnu = hit.pnu
+    }
+  }
+  /*
+   * 여기서는 대지권 "총면적"만 모은다.
+   *
+   * 예전엔 이 API 의 호별 lndpclAr 을 그 호의 대지지분으로 믿고 중앙값을 썼다.
+   * 아니었다 — 58% 의 건물에서 모든 호가 같은 값이고, 그건 필지를 호수로
+   * 균등분할한 것이다. 전용면적이 두 배 차이 나는 호가 같은 대지지분일 수 없다.
+   * 호별 배분은 아래에서 landShareOf 가 한다.
+   */
+  let totalLandM2: number | null = null
   if (pnu) {
     const rights = await getLandRightsMany([pnu], 2)
     const rg = rights.get(pnu)
-    if (rg?.length) {
-      landShareSource = 'right'
-      // 층이 주어지면 그 층의 호를 고르고, 아니면 중앙값을 쓴다
-      const sameFloor =
-        input.floor != null ? rg.filter((u) => Number(u[1]) === Math.abs(input.floor!)) : []
-      const pickFrom = sameFloor.length ? sameFloor : rg
-      const areas = pickFrom.map((u) => u[2]).sort((a, b) => a - b)
-      landSharePyeong = Math.round((areas[Math.floor(areas.length / 2)] / PYEONG) * 100) / 100
-    } else if (!main) {
-      landShareSource = 'none'
-    }
+    if (rg?.length) totalLandM2 = rg.reduce((sum, u) => sum + u[2], 0)
   }
 
   /* ── 대장 전유부: 호별 면적·용도 ── */
@@ -156,6 +219,48 @@ export async function GET(request: Request) {
     }
   }
 
+  /* ── 호파인더 대조 ──────────────────────────────────
+     여기서 기다린다. 우리 조회가 다 끝난 뒤라 대기가 겹쳐 시간이 늘지 않는다.
+     실패하면 null 이고, 그래도 우리 검증은 그대로 나간다. */
+  const hf = await hofinderP
+
+  /*
+   * ── 대지지분 ──
+   * 실거래 신고서의 대지권면적 → 같은 건물 비율 → 전용면적 비례 순으로 고른다.
+   * 어느 근거로 나온 값인지 함께 내보낸다.
+   */
+  const liveDeals = (hf?.deals ?? []).filter((d) => !d.canceled && d.landShareArea)
+  const ourHo = matchedUnit?.ho ?? null
+  const myDeal =
+    ourHo && matchedUnit
+      ? (liveDeals.find(
+          (d) =>
+            d.estimatedHo?.replace(/[^0-9]/g, '') === ourHo.replace(/[^0-9]/g, '') &&
+            Math.abs(d.exclusiveArea - matchedUnit.area) <= 0.5,
+        ) ?? null)
+      : null
+  const share = landShareOf({
+    unitArea: matchedUnit?.area ?? input.exclusiveAr,
+    allUnitAreas: ex?.length ? ex.map((u) => u[2]) : null,
+    totalLandM2,
+    dealLandM2: myDeal?.landShareArea ?? null,
+    buildingDeals: liveDeals.map((d) => ({ area: d.exclusiveArea, landM2: d.landShareArea! })),
+  })
+  landSharePyeong = share.pyeong
+  landShareSource =
+    share.basis === 'deal' ? 'right' : share.basis === 'none' ? 'none' : 'expos'
+
+  /*
+   * 용도가 주택이 아니면 공동주택가격이 애초에 없다.
+   *
+   * 근린생활시설·상가는 공동주택가격 고시 대상이 아니다. 같은 지번의 옆 호
+   * 값을 면적이 비슷하다는 이유로 붙이면, 없는 감정가·프리미엄이 만들어진다.
+   * 서계동 245-11 101호가 그 경우다.
+   */
+  const NON_HOUSE = /근린생활|판매시설|업무시설|공장|창고|교육연구|종교|의료|숙박|위락|운동|자동차/
+  const unitIsHouse = matchedUnit ? !NON_HOUSE.test(matchedUnit.purpose) : true
+  const publicPrice = unitIsHouse ? (matched?.[1] ?? livePrice) : null
+
   const facts: ListingFacts = {
     purpose: main?.purpose ?? null,
     matchedUnit,
@@ -164,7 +269,8 @@ export async function GET(request: Request) {
       : null,
     landSharePyeong,
     landShareSource,
-    publicPrice: matched?.[1] ?? null,
+    landShareLabel: share.label,
+    publicPrice,
     unitAreas,
     zoneName: zone?.name ?? null,
     zoneStage: zone?.stage ?? null,
@@ -180,6 +286,37 @@ export async function GET(request: Request) {
 
   const findings = verifyListing(input, facts)
 
+  const hfMatched = hf?.matched ?? null
+  /* 호파인더가 잡은 호의 공시가는 units 목록에서 찾는다 */
+  const hfUnit = hfMatched
+    ? (hf?.units ?? []).find((u) => u.ho === hfMatched.ho) ?? null
+    : null
+
+  const crossRows = hf
+    ? crossCheck({
+        ours: {
+          ho: ourHo,
+          purpose: matchedUnit?.purpose ?? null,
+          exclusiveAr: matchedUnit?.area ?? null,
+          publicPrice: facts.publicPrice,
+          landSharePyeong: facts.landSharePyeong,
+          landShareBasis: share.basis,
+          landShareLabel: share.label,
+        },
+        theirs: {
+          ho: hfMatched?.ho ?? null,
+          purpose: hfMatched?.purpose ?? null,
+          exclusiveAr: hfMatched?.area ?? null,
+          publicPrice: hfUnit?.officialPrice ?? null,
+          landSharePyeong: hfUnit?.estLandSharePyeong ?? null,
+          dealLandShareM2: myDeal?.landShareArea ?? null,
+          dealLabel: myDeal
+            ? `${myDeal.contractDate} ${(myDeal.priceMan / 10_000).toFixed(2).replace(/[.]?0+$/, '')}억`
+            : null,
+        },
+      })
+    : []
+
   return NextResponse.json({
     address: `${gu} ${dong} ${jibun}`,
     input,
@@ -189,9 +326,27 @@ export async function GET(request: Request) {
     facts,
     findings,
     verdict: verdict(findings),
+    /* 대지지분을 어떤 근거로 냈는가 — 숫자만 주면 실측인지 추정인지 알 수 없다 */
+    landShare: share,
+    /*
+     * 호파인더 대조. 우리 판정을 덮어쓰지 않는다 — 나란히 놓는다.
+     * unavailable 이면 "일치한다"가 아니라 "못 물어봤다"는 뜻이다.
+     */
+    cross: hf
+      ? {
+          rows: crossRows,
+          summary: crossVerdict(crossRows),
+          verdict: hf.verdict ?? null,
+          appraisal: hf.estAppraisal != null ? hf.estAppraisal * 10_000 : null,
+          premium: hf.premium != null ? hf.premium * 10_000 : null,
+          deals: (hf.deals ?? []).filter((d) => !d.canceled).slice(0, 5),
+          units: (hf.units ?? []).length,
+        }
+      : { unavailable: hasHofinder() ? 'HOFINDER_UNREACHABLE' : 'HOFINDER_OFF' },
     _meta: {
       source:
-        '건축물대장 / 공동주택 공시가격 / 대지권등록부(V-World 소유정보) / 서울시 의제처리구역',
+        '건축물대장 / 공동주택 공시가격 / 대지권등록부(V-World 소유정보) / 서울시 의제처리구역' +
+        (hf ? ' · 호파인더 대조' : ''),
       note: '입력값은 사용자가 제공한 것이며 저장하지 않습니다. 본 결과는 참고용이고 계약 전 등기부등본·건축물대장 원본과 조합·구청 확인이 필요합니다. 본 서비스는 중개·감정평가·투자자문을 제공하지 않습니다.',
     },
   })

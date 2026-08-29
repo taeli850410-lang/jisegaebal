@@ -12,6 +12,7 @@ import {
 } from '@/lib/listingModel'
 import { loadListings, removeListing, saveListing, type StoreMode } from '@/lib/listingStore'
 import { subscribeStore } from '@/lib/userStore'
+import VerifyResult, { type VerifyPayload } from './VerifyResult'
 
 /**
  * 구역 매물.
@@ -76,6 +77,8 @@ export default function ZoneListings({
   const [jibun, setJibun] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  /* 등록 전에 보여줄 검증 결과 — 계산해 놓고 감추지 않는다 */
+  const [check, setCheck] = useState<VerifyPayload | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => subscribeStore(() => setTick((t) => t + 1)), [])
@@ -90,6 +93,42 @@ export default function ZoneListings({
       cancelled = true
     }
   }, [zoneId, tick])
+
+  /** 지번·면적·층으로 공공데이터를 조회한다. 등록과 검증이 같은 경로를 쓴다. */
+  const runVerify = useCallback(async (): Promise<VerifyPayload | null> => {
+    if (!gu || !dong || !jibun.trim()) {
+      setErr('지번을 입력하세요.')
+      return null
+    }
+    const q = new URLSearchParams({
+      gu,
+      dong,
+      jibun: jibun.trim(),
+      type: f.type,
+      ...(f.exclusiveAr ? { area: f.exclusiveAr } : {}),
+      ...(f.floor ? { floor: f.floor } : {}),
+      ...(f.price ? { price: String(Math.round(Number(f.price) * EOK)) } : {}),
+    })
+    return fetch(`/api/verify?${q}`).then((r) => r.json())
+  }, [f, gu, dong, jibun])
+
+  /*
+   * 등록하기 전에 먼저 본다.
+   *
+   * 근생이라 분양자격이 다르다거나 대지지분 근거가 약하다는 건 등록 후가 아니라
+   * 등록 전에 봐야 하는 이야기다. 그래서 검증을 따로 눌러볼 수 있게 한다.
+   */
+  const preview = useCallback(async () => {
+    setErr(null)
+    setBusy(true)
+    try {
+      setCheck(await runVerify())
+    } catch {
+      setErr('조회 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.')
+    } finally {
+      setBusy(false)
+    }
+  }, [runVerify])
 
   /**
    * 등록할 때 공공데이터를 붙인다.
@@ -109,15 +148,8 @@ export default function ZoneListings({
     }
     setBusy(true)
     try {
-      const q = new URLSearchParams({
-        gu,
-        dong,
-        jibun: jibun.trim(),
-        type: f.type,
-        ...(f.exclusiveAr ? { area: f.exclusiveAr } : {}),
-        ...(f.floor ? { floor: f.floor } : {}),
-      })
-      const v = await fetch(`/api/verify?${q}`).then((r) => r.json())
+      const v = await runVerify()
+      setCheck(v)
       const res = await saveListing(
         {
           gu,
@@ -128,8 +160,8 @@ export default function ZoneListings({
           exclusiveAr: f.exclusiveAr ? Number(f.exclusiveAr) : null,
           floor: f.floor ? Number(f.floor) : null,
           publicPrice: v?.facts?.publicPrice ?? null,
-          landSharePyeong: v?.facts?.landSharePyeong ?? null,
-          landShareSource: v?.facts?.landShareSource ?? null,
+          landSharePyeong: v?.landShare?.pyeong ?? null,
+          landShareSource: v?.landShare?.label ?? null,
           buildYear: v?.facts?.approvalDate ? Number(v.facts.approvalDate.slice(0, 4)) : null,
           purpose: v?.facts?.matchedUnit?.purpose ?? v?.facts?.purpose ?? null,
           zoneId,
@@ -150,14 +182,13 @@ export default function ZoneListings({
       }
       setF(EMPTY_FORM)
       setJibun('')
-      setOpen(false)
       setTick((t) => t + 1)
     } catch {
       setErr('등록 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.')
     } finally {
       setBusy(false)
     }
-  }, [f, gu, dong, jibun, zoneId, zoneName])
+  }, [f, gu, dong, jibun, zoneId, zoneName, runVerify])
 
   const list = sortListings(items, sort, a)
 
@@ -285,13 +316,32 @@ export default function ZoneListings({
 
           {err && <p className="text-[11px] font-bold text-rose-600">{err}</p>}
 
-          <button
-            onClick={add}
-            disabled={busy}
-            className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {busy ? '공공데이터 확인 중…' : '등록하고 검증'}
-          </button>
+          {/*
+            검증을 먼저 눌러볼 수 있게 한다.
+            근생이라 분양자격이 다르다는 건 올리기 전에 알아야 한다.
+          */}
+          <div className="flex gap-2">
+            <button
+              onClick={preview}
+              disabled={busy}
+              className="flex-1 rounded-lg border border-indigo-200 bg-white py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+            >
+              {busy ? '조회 중…' : '먼저 검증만'}
+            </button>
+            <button
+              onClick={add}
+              disabled={busy}
+              className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {busy ? '확인 중…' : '등록하고 검증'}
+            </button>
+          </div>
+
+          {check && (
+            <div className="border-t border-gray-100 pt-2">
+              <VerifyResult v={check} />
+            </div>
+          )}
           <p className="text-[10px] leading-relaxed text-gray-400">
             중개대상물 표시·광고는 개업공인중개사만 할 수 있습니다(공인중개사법 제18조의2). 사무소명·
             등록번호·전화가 없으면 이 브라우저에만 남고 공개 목록에는 올라가지 않습니다.
