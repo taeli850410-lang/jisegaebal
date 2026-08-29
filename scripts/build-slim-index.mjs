@@ -11,6 +11,7 @@
  *   node scripts/build-slim-index.mjs
  */
 import { readFileSync, writeFileSync, statSync } from 'node:fs'
+import { gzipSync } from 'node:zlib'
 
 const SRC = 'data/building-index.json'
 const OUT = 'data/building-slim.json'
@@ -36,6 +37,12 @@ for (const [key, v] of Object.entries(bi)) {
 
 const out = JSON.stringify(slim)
 writeFileSync(OUT, out)
+/*
+ * 배포에는 압축본이 올라간다. 43.6MB 를 그대로 저장소에 두면 클론이 무겁고,
+ * Vercel 은 파일당 100MB 를 넘기면 배포를 거부한다.
+ * gzip 하면 7.9MB 이고 푸는 데 90ms 라 콜드스타트에 부담이 없다.
+ */
+writeFileSync(OUT + '.gz', gzipSync(out, { level: 9 }))
 const mb = (n) => (n / 1048576).toFixed(1) + 'MB'
 console.log(`${Object.keys(bi).length.toLocaleString()} 지번 → ${Object.keys(slim).length.toLocaleString()}`)
 console.log(`건물 없는 지번 ${dropped.toLocaleString()}개 제외`)

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { gunzipSync } from 'node:zlib'
 
 /**
  * 건축물대장 색인.
@@ -8,8 +9,12 @@ import { join } from 'node:path'
  * 콜드스타트마다 2.2초를 파싱에 쓴다. 실제로 읽는 필드는 여섯 개뿐이어서
  * scripts/build-slim-index.mjs 가 32MB / 1.0초짜리로 줄여 둔다.
  *
- * 배포에는 슬림본만 올라간다. 로컬에는 원본이 있을 수 있으니 슬림본이 없으면
- * 원본을 읽는다 — 둘 다 없으면 빈 색인이지만, 그 사실을 감추지 않는다.
+ * 배포에는 그 슬림본을 gzip 한 것만 올라간다(7.9MB, 푸는 데 90ms).
+ * 43.6MB 를 그대로 저장소에 두면 클론이 무거워지고, Vercel 은 파일당 100MB 를
+ * 넘기면 배포 자체를 거부한다 — 원본 106MB 가 실제로 그래서 막혔다.
+ *
+ * 읽는 순서는 gzip 슬림본 → 슬림본 → 원본이다. 로컬에는 원본만 있을 수 있다.
+ * 셋 다 없으면 빈 색인이지만, 그 사실을 감추지 않는다.
  * 예전에 이걸 조용히 {} 로 두는 바람에 배포된 화면이 "0건"을 사실처럼 보여줬다.
  */
 
@@ -37,7 +42,7 @@ type Slim = Record<string, { b: SlimRow[]; s?: number }>
 
 let index: Record<string, BuildingLot> | null = null
 /** 색인이 어디서 왔는가 — 비어 있으면 왜 비었는지 말할 수 있어야 한다 */
-let origin: 'slim' | 'full' | 'missing' = 'missing'
+let origin: 'slim-gz' | 'slim' | 'full' | 'missing' = 'missing'
 
 function fromSlim(s: Slim): Record<string, BuildingLot> {
   const out: Record<string, BuildingLot> = {}
@@ -60,6 +65,14 @@ function fromSlim(s: Slim): Record<string, BuildingLot> {
 export function getBuildingIndex(): Record<string, BuildingLot> {
   if (index) return index
   const dir = join(process.cwd(), 'data')
+  try {
+    const gz = gunzipSync(readFileSync(join(dir, 'building-slim.json.gz'))).toString('utf-8')
+    index = fromSlim(JSON.parse(gz) as Slim)
+    origin = 'slim-gz'
+    return index
+  } catch {
+    /* 압축본이 없으면 아래로 */
+  }
   try {
     index = fromSlim(JSON.parse(readFileSync(join(dir, 'building-slim.json'), 'utf-8')) as Slim)
     origin = 'slim'
