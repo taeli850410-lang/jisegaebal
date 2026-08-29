@@ -139,6 +139,7 @@ export default function MapView() {
   const roadviewRef = useRef<HTMLDivElement>(null)
 
   const mapRef = useRef<any>(null)
+  const resizeObsRef = useRef<ResizeObserver | null>(null)
   const polygonsRef = useRef<any[]>([])
   const labelsRef = useRef<any[]>([])
   const clusterOverlaysRef = useRef<any[]>([])
@@ -250,6 +251,26 @@ export default function MapView() {
         kakao.maps.event.addListener(map, 'zoom_changed', syncLevel)
         kakao.maps.event.addListener(map, 'idle', syncLevel)
         syncLevel()
+
+        /*
+         * 컨테이너 크기가 바뀌면 지도에 알려야 한다.
+         *
+         * 카카오 지도는 만들어질 때의 크기로 좌표를 계산해 두고, 컨테이너가
+         * 커져도 스스로 다시 재지 않는다. 그래서 창을 넓히면 화면 중심이
+         * 엉뚱한 곳으로 밀린다 — 실제로 800x450 에서 만든 지도를 1060x800 으로
+         * 넓혔더니 서울 중심으로 띄운 지도가 성남을 보고 있었다.
+         * 창 크기를 바꾸는 데스크톱과 화면을 돌리는 휴대폰 모두에서 생긴다.
+         *
+         * relayout() 은 중심을 유지하지 않으므로 직접 되돌려 놓는다.
+         */
+        const ro = new ResizeObserver(() => {
+          const c = map.getCenter()
+          map.relayout()
+          map.setCenter(c)
+        })
+        ro.observe(containerRef.current)
+        resizeObsRef.current = ro
+
         setReady(true)
       })
       .catch((e: Error) => {
@@ -263,6 +284,8 @@ export default function MapView() {
 
     return () => {
       cancelled = true
+      resizeObsRef.current?.disconnect()
+      resizeObsRef.current = null
     }
   }, [])
 
