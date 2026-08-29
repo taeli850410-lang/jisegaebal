@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { browseDevelops, guCounts, type DevelopBrief } from '@/lib/server/developStore'
 import { findSite, siteGuCounts, sitesInGu, type SiteBrief } from '@/lib/server/siteStore'
+import { cacheHeaders } from '@/lib/server/cacheHeaders'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,7 +59,8 @@ export async function GET(request: Request) {
     const gus = guCounts().map((g) => ({ ...g, count: g.count + (extra.get(g.gu) ?? 0) }))
     const known = new Set(gus.map((g) => g.gu))
     for (const [gu, count] of extra) if (!known.has(gu)) gus.push({ gu, count })
-    return NextResponse.json({ gus: gus.sort((a, b) => a.gu.localeCompare(b.gu, 'ko')) })
+    return NextResponse.json(
+    { gus: gus.sort((a, b) => a.gu.localeCompare(b.gu, 'ko')) })
   }
 
   const ids = searchParams.get('ids')?.split(',').filter(Boolean)
@@ -99,5 +101,7 @@ export async function GET(request: Request) {
     total: zones.total + sites.length,
     items: items.slice(0, limit),
     _meta: META,
-  })
+    },
+    { headers: cacheHeaders('hourly') },
+  )
 }

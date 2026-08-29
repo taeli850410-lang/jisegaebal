@@ -9,6 +9,7 @@ import { getExposMany } from '@/lib/server/expos'
 import { getLandRightsMany } from '@/lib/server/landRight'
 import { outerRings } from '@/lib/types'
 import { parcelLinks, searchName, zoneLinks, type LinkTarget } from '@/lib/listingLinks'
+import { cacheHeaders } from '@/lib/server/cacheHeaders'
 
 /**
  * 구역 내 물건 카드 — GET /api/zone-parcels?id=<구역ID>
@@ -341,5 +342,5 @@ export async function GET(request: Request) {
         '필지·공시지가: 국토교통부 연속지적도(V-World) / 건축물: 건축물대장 / 공시가격: 공동주택 공시가격 / 실거래: 국토교통부',
       note: '대지지분은 대지 총면적을 호별 전용면적 비율로 나눈 추정값입니다. 실거래 신고서의 대지권면적 560건과 대조해 82%의 건물에서 이 방식이 맞았습니다. 대지권등록부 자료가 있으면 그 합을 총면적으로 쓰고(집합건물의 대지는 여러 필지에 걸칠 수 있습니다), 없으면 지적도 필지면적을 씁니다. 집합건물이 아닌 필지는 필지 전체가 대지지분입니다. 확정은 등기부 대지권비율입니다. 호가(매물 가격)는 저장하지 않고 네이버 부동산 검색으로 연결합니다.',
     },
-  })
+  }, { headers: cacheHeaders('weekly') })
 }

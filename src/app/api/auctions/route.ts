@@ -3,6 +3,7 @@ import { fetchAuctions, hasOnbid, lastOnbidError, type AuctionItem } from '@/lib
 import { getAllDevelops } from '@/lib/server/developStore'
 import { geocodeMany } from '@/lib/server/geocode'
 import { outerRings } from '@/lib/types'
+import { NO_CACHE, cacheHeaders } from '@/lib/server/cacheHeaders'
 
 /**
  * 공매 물건 조회 — GET /api/auctions?gu=강동구
@@ -135,7 +136,7 @@ export async function GET(request: Request) {
     }
   })
 
-  return NextResponse.json({
+  const payload = {
     gu,
     total: zoned.length,
     inZone: zoned.filter((z) => z.zoneId).length,
@@ -146,5 +147,13 @@ export async function GET(request: Request) {
       source: '한국자산관리공사 온비드 공매 (차세대 부동산 물건목록)',
       note: '법원경매는 공개 API가 없어 포함되지 않습니다. 구역 표시는 물건 지번을 좌표로 변환해 구역 경계 안으로 판정된 건입니다.',
     },
+  }
+  /*
+   * 조회가 실패한 응답은 캐시하지 않는다.
+   * unavailable 이 담긴 답을 CDN 이 하루 동안 돌려주면, 원인이 사라진 뒤에도
+   * 계속 "가져올 수 없습니다"를 보게 된다.
+   */
+  return NextResponse.json(payload, {
+    headers: payload.unavailable ? NO_CACHE : cacheHeaders('daily'),
   })
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAllDevelops } from '@/lib/server/developStore'
+import { cacheHeaders } from '@/lib/server/cacheHeaders'
 
 export const dynamic = 'force-dynamic'
 
@@ -134,5 +135,5 @@ export async function GET(request: Request) {
     })
   }
 
-  return NextResponse.json({ zones, places: places.slice(0, 8) })
+  return NextResponse.json({ zones, places: places.slice(0, 8) }, { headers: cacheHeaders('hourly') })
 }

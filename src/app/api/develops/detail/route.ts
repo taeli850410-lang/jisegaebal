@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAllDevelops } from '@/lib/server/developStore'
 import { findSite } from '@/lib/server/siteStore'
+import { cacheHeaders } from '@/lib/server/cacheHeaders'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,5 +62,5 @@ export async function GET(request: Request) {
     bbox: d.bbox,
     // 상세 패널은 지오메트리를 쓰지 않으므로 빈 폴리곤을 돌려 응답을 가볍게 유지한다
     geometry: { type: 'Polygon' as const, coordinates: [] },
-  })
+  }, { headers: cacheHeaders('hourly') })
 }

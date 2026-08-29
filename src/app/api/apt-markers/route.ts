@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { fetchTransactions, lastMolitError } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
 import { SEOUL_LAWD } from '@/lib/server/lawdCodes'
+import { cacheHeaders } from '@/lib/server/cacheHeaders'
 
 /**
  * 지도 위 아파트 단지 시세 마커.
@@ -86,7 +87,7 @@ export async function GET(request: Request) {
   }
 
   const gus = await guInBbox(bbox)
-  if (!gus.length) return NextResponse.json({ markers: [], gus: [] })
+  if (!gus.length) return NextResponse.json({ markers: [], gus: [] }, { headers: cacheHeaders('daily') })
 
   // 자치구 단위로 캐시한다 — 지도를 조금 움직여도 재사용된다
   const markers: AptMarker[] = []

@@ -6,6 +6,7 @@ import { geocodeMany } from '@/lib/server/geocode'
 import { getAptInfo } from '@/lib/server/aptInfo'
 import { stageDurations } from '@/lib/server/stageStats'
 import { outerRings } from '@/lib/types'
+import { NO_CACHE, cacheHeaders } from '@/lib/server/cacheHeaders'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -274,7 +275,7 @@ export async function GET(request: Request) {
   const kindLabels: Record<string, string> = {}
   for (const k of kinds) kindLabels[k] = deals.find((d) => d.kind === k)!.typeLabel
 
-  return NextResponse.json({
+  const payload = {
     zone: {
       id: zone.id,
       name: zone.name,
@@ -321,5 +322,13 @@ export async function GET(request: Request) {
         ? `이 사업장은 정비구역 고시가 없어 경계 데이터가 존재하지 않습니다. 실거래는 대표지번(${zone.gu} ${site.jibun})에서 반경 ${SITE_RADIUS_KM * 1000}m 안의 건만 집계한 근사값이며, 구역 면적·용적률 등 제원은 원본에 없습니다.`
         : '실거래는 지번 지오코딩 후 구역 경계 안으로 판정된 건만 집계합니다.',
     },
+  }
+  /*
+   * 조회가 실패한 응답은 캐시하지 않는다.
+   * unavailable 이 담긴 답을 CDN 이 하루 동안 돌려주면, 원인이 사라진 뒤에도
+   * 계속 "가져올 수 없습니다"를 보게 된다.
+   */
+  return NextResponse.json(payload, {
+    headers: payload.unavailable ? NO_CACHE : cacheHeaders('hourly'),
   })
 }

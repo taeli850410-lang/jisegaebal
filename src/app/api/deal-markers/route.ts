@@ -4,6 +4,7 @@ import { fetchTransactions, lastMolitError } from '@/lib/server/molit'
 import { geocodeMany } from '@/lib/server/geocode'
 import { SEOUL_LAWD } from '@/lib/server/lawdCodes'
 import { outerRings } from '@/lib/types'
+import { cacheHeaders } from '@/lib/server/cacheHeaders'
 
 /**
  * 지도 위 개별 실거래 마커.
@@ -96,7 +97,7 @@ export async function GET(request: Request) {
   }
 
   const gus = await guInBbox(bbox)
-  if (!gus.length) return NextResponse.json({ markers: [], gus: [] })
+  if (!gus.length) return NextResponse.json({ markers: [], gus: [] }, { headers: cacheHeaders('daily') })
 
   const all = getAllDevelops()
   const markers: DealMarker[] = []

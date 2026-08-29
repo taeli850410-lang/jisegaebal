@@ -4,6 +4,7 @@ import { fetchTransactions, median, type Kind, type Transaction, lastMolitError 
 import { geocodeMany } from '@/lib/server/geocode'
 import { attachPublicPrices } from '@/lib/server/housePrice'
 import { outerRings } from '@/lib/types'
+import { cacheHeaders } from '@/lib/server/cacheHeaders'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -246,5 +247,5 @@ export async function GET(request: Request) {
     },
   }
   ALL_CACHE.set(cacheKey, { at: Date.now(), body })
-  return NextResponse.json(body)
+  return NextResponse.json(body, { headers: cacheHeaders('daily') })
 }

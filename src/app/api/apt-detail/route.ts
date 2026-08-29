@@ -3,6 +3,7 @@ import { fetchTransactions, lastMolitError, median } from '@/lib/server/molit'
 import { getAptInfo } from '@/lib/server/aptInfo'
 import { getAllDevelops } from '@/lib/server/developStore'
 import { geocodeMany } from '@/lib/server/geocode'
+import { NO_CACHE, cacheHeaders } from '@/lib/server/cacheHeaders'
 
 /**
  * 아파트 단지 상세 — GET /api/apt-detail?gu=강동구&dong=암사동&jibun=508&name=...
@@ -169,7 +170,7 @@ export async function GET(request: Request) {
       buildingName: d.buildingName ?? null,
     }))
 
-  return NextResponse.json({
+  const payload = {
     name,
     gu,
     dong,
@@ -189,5 +190,13 @@ export async function GET(request: Request) {
       source: '실거래: 국토교통부 아파트 매매 / 세대수·준공: 국토교통부 건축물대장 총괄표제부',
       note: '전용면적은 반올림한 정수로 묶습니다. 세대수·준공연도는 대장상 값이며 단지명이 실거래와 다를 수 있습니다.',
     },
+  }
+  /*
+   * 조회가 실패한 응답은 캐시하지 않는다.
+   * unavailable 이 담긴 답을 CDN 이 하루 동안 돌려주면, 원인이 사라진 뒤에도
+   * 계속 "가져올 수 없습니다"를 보게 된다.
+   */
+  return NextResponse.json(payload, {
+    headers: payload.unavailable ? NO_CACHE : cacheHeaders('daily'),
   })
 }

@@ -201,15 +201,15 @@ export default function ZoneParcels({ zoneId }: { zoneId: string }) {
                 <div className="flex justify-between border-b border-gray-50 py-0.5">
                   <dt className="text-gray-500">
                     대지지분
-                    {/* 어디서 온 면적으로 나눴는지 밝힌다 — 정밀도가 다르다 */}
+                    {/* 어느 면적 목록으로 나눴는지 밝힌다 — 전부 추정이다 */}
                     <span className="ml-1 text-[9px] text-gray-300">
-                      {c.unitSource === 'right'
-                        ? '등록부'
-                        : c.unitSource === 'price'
-                          ? '공시추정'
-                          : c.unitSource === 'expos'
-                            ? '대장추정'
-                            : '단독'}
+                      {c.unitSource === 'price'
+                        ? '공시추정'
+                        : c.unitSource === 'expos'
+                          ? '대장추정'
+                          : c.unitSource === 'whole'
+                            ? '단독'
+                            : '추정'}
                     </span>
                   </dt>
                   <dd className="font-semibold tabular-nums">
@@ -260,10 +260,11 @@ export default function ZoneParcels({ zoneId }: { zoneId: string }) {
       )}
 
       <p className="mt-2 text-[10px] leading-relaxed text-gray-400">
-대지지분 옆의 작은 글씨가 근거입니다. <b>등록부</b>는 대지권등록부의 실제 호별
-        대지면적이고, <b>공시추정·대장추정</b>은 그 값이 없어 호별 전용면적 비율로 안분한
-        추정치이며, <b>단독</b>은 집합건물이 아니어서 필지 전체가 곧 대지지분인 경우입니다
-        (단독·다가구·근생 등). <b>호가는 저장하지 않습니다.</b> 「매물 보기」는 그 지번을 네이버
+대지지분은 <b>모두 추정치</b>입니다. 대지 총면적을 호별 전용면적 비율로 나눈 값이며,
+        옆의 작은 글씨는 그 전용면적 목록이 어디서 왔는지입니다 — <b>공시추정</b>은 공동주택
+        공시가격, <b>대장추정</b>은 건축물대장 전유부, <b>단독</b>은 집합건물이 아니어서 필지
+        전체가 곧 대지지분인 경우입니다(단독·다가구·근생 등). 실거래 신고서의 대지권면적
+        560건과 대조해 82%의 건물에서 이 방식이 맞았습니다. <b>확정은 등기부 대지권비율입니다.</b> <b>호가는 저장하지 않습니다.</b> 「매물 보기」는 그 지번을 네이버
         부동산에서 검색하는 링크이며, 우리 서버는 매물 정보를 갖고 있지 않습니다. 출처 — 필지·공시지가:
         연속지적도(V-World) / 건축물: 건축물대장 / 공시가격: 공동주택 공시가격 / 실거래: 국토교통부.
       </p>

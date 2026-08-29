@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { clusterDevelops } from '@/lib/server/developStore'
+import { cacheHeaders } from '@/lib/server/cacheHeaders'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,5 +35,5 @@ export async function GET(request: Request) {
     by,
     clusters,
     total: clusters.reduce((s, c) => s + c.count, 0),
-  })
+  }, { headers: cacheHeaders('hourly') })
 }
