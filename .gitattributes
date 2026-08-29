@@ -1,0 +1,4 @@
+# Vercel 의 ignore 파서는 
+ 으로만 쪼갠다. CRLF 로 체크아웃되면
+# 패턴 끝에  이 붙어 아무것도 매칭되지 않고, node_modules 까지 업로드된다.
+.vercelignore text eol=lf
