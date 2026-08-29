@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test src/**/*.test.ts"
+    "test": "node --test src/**/*.test.ts",
+    "build:slim-index": "node --max-old-space-size=4096 scripts/build-slim-index.mjs"
   },
   "dependencies": {
     "next": "^16.3.1",

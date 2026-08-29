@@ -51,3 +51,6 @@ data/expos-cache-v2.json
 tsconfig.tsbuildinfo
 AGENTS.md
 CLAUDE.md
+
+.vercel
+data/building-slim.json

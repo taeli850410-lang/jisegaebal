@@ -1,5 +1,26 @@
-# 변환 원본 SHP/zip — 배포에 불필요 (data/develops.seoul.json 만 있으면 된다)
+# Vercel 은 .vercelignore 가 있으면 .gitignore 를 아예 보지 않는다.
+# 그래서 여기에 전부 적어야 한다 — 안 그러면 node_modules 와 .next 까지
+# 올라가 업로드가 2.8GB 가 되고, 파일당 100MB 제한에도 걸린다.
+
+node_modules
+.next
+.git
+.vercel
+
+# 변환 원본 SHP/zip — data/develops.seoul.json 만 있으면 된다
 data/raw/
 
-# 기획 문서
+# 건축물대장 색인 원본은 105.9MB 라 파일당 100MB 제한을 넘는다.
+# scripts/build-slim-index.mjs 가 만든 building-slim.json(43.6MB)만 올린다.
+# getBuildingIndex() 가 슬림본을 먼저 찾는다.
+data/building-index.json
+
+# 원자료 CSV·문서 — 100MB 를 넘고 런타임에 쓰지 않는다
+.claude/
 재개발플랫폼_개발기획서.md
+*.docx
+*.xlsx
+
+# 에이전트용 생성 파일
+AGENTS.md
+CLAUDE.md

@@ -54,6 +54,42 @@ const nextConfig: NextConfig = {
       './data/apt-info-cache.json',
       './data/zone-stats.json',
     ],
+    /*
+     * 아래 네 개는 트레이싱이 없어서 배포되면 데이터 없이 돌고 있었다.
+     * 구역 조회가 통째로 비고, 공시가·지오코딩 캐시도 안 실렸다.
+     * 화면에는 "없음"으로 보이니 정상처럼 읽힌다 — 그게 더 나쁘다.
+     *
+     * building-slim.json 은 106MB 원본을 쓰는 필드만 남겨 32MB 로 줄인 것이다
+     * (scripts/build-slim-index.mjs). 콜드스타트 파싱이 2.2초에서 1.0초로 준다.
+     */
+    '/api/verify': [
+      './data/building-slim.json',
+      './data/house-price-cache.json',
+      './data/develops.seoul.json',
+      './data/stages.seoul.json',
+      './data/zone-summary.json', './data/zone-progress.json', './data/zone-plan.json',
+      './data/jibun-cache.json',
+    ],
+    '/api/zone-parcels': [
+      './data/building-slim.json',
+      './data/house-price-cache.json',
+      './data/develops.seoul.json',
+      './data/stages.seoul.json',
+      './data/zone-summary.json', './data/zone-progress.json', './data/zone-plan.json',
+    ],
+    '/api/apt-detail': [
+      './data/apt-info-cache.json',
+      './data/jibun-cache.json',
+      './data/develops.seoul.json',
+      './data/stages.seoul.json',
+      './data/zone-summary.json', './data/zone-progress.json', './data/zone-plan.json',
+    ],
+    '/api/auctions': [
+      './data/jibun-cache.json',
+      './data/develops.seoul.json',
+      './data/stages.seoul.json',
+      './data/zone-summary.json', './data/zone-progress.json', './data/zone-plan.json',
+    ],
     '/api/search': [
       './data/develops.seoul.json',
       './data/stages.seoul.json',

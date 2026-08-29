@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { gunzipSync } from 'node:zlib'
 import { getAllDevelops } from '@/lib/server/developStore'
 import { getLandRightsMany } from '@/lib/server/landRight'
 import { getExposMany } from '@/lib/server/expos'
 import { geocodeMany } from '@/lib/server/geocode'
 import { fetchParcels } from '@/lib/server/vworld'
 import { getPublicPrice } from '@/lib/server/housePrice'
+import { getBuildingIndex, buildingIndexStatus } from '@/lib/server/buildingIndex'
 import { resolveRightsDate } from '@/lib/rightsDate'
 import { verifyListing, verdict, type ListingFacts } from '@/lib/verifyListing'
 import { outerRings } from '@/lib/types'
@@ -31,16 +33,9 @@ export const maxDuration = 45
 const PYEONG = 3.3058
 const pad = (v: number) => String(v || 0).padStart(4, '0')
 
-let bi: Record<string, { buildings: { purpose: string; hhld: number; apr: string }[] }> | null = null
 let hp: Record<string, { year: number; units: [number, number, boolean][] } | null> | null = null
 function loadIndexes() {
-  if (!bi) {
-    try {
-      bi = JSON.parse(readFileSync(join(process.cwd(), 'data', 'building-index.json'), 'utf-8'))
-    } catch {
-      bi = {}
-    }
-  }
+  const bi = getBuildingIndex()
   if (!hp) {
     try {
       hp = JSON.parse(readFileSync(join(process.cwd(), 'data', 'house-price-cache.json'), 'utf-8'))
@@ -48,7 +43,7 @@ function loadIndexes() {
       hp = {}
     }
   }
-  return { bi: bi!, hp: hp! }
+  return { bi, hp: hp! }
 }
 
 function pointInRing(lng: number, lat: number, ring: number[][]): boolean {
@@ -118,6 +113,12 @@ export async function GET(request: Request) {
   /* ── 건축물대장 ── */
   const [bunRaw, jiRaw] = jibun.replace(/[^0-9-]/g, '').split('-')
   const bkey = `${gu}|${dong}|${pad(Number(bunRaw))}${pad(Number(jiRaw ?? 0))}`
+  /*
+   * 색인이 안 실렸을 때 호파인더가 건물 개요를 대신 준다.
+   *
+   * 색인이 없다고 "용도 미상"으로 넘기면 근생을 주택으로 오인하게 된다.
+   * 그건 분양자격이 걸린 문제라 비워 둘 수 없다.
+   */
   const main = bi[bkey]?.buildings?.[0] ?? null
 
   /* ── 공동주택 공시가격 ── */
@@ -261,12 +262,14 @@ export async function GET(request: Request) {
   const unitIsHouse = matchedUnit ? !NON_HOUSE.test(matchedUnit.purpose) : true
   const publicPrice = unitIsHouse ? (matched?.[1] ?? livePrice) : null
 
+  const hfBuilding = hf?.building ?? null
   const facts: ListingFacts = {
-    purpose: main?.purpose ?? null,
+    purpose: main?.purpose ?? hfBuilding?.mainPurpose ?? null,
     matchedUnit,
-    approvalDate: main?.apr
-      ? `${main.apr.slice(0, 4)}-${main.apr.slice(4, 6)}-${main.apr.slice(6, 8)}`
-      : null,
+    approvalDate: (() => {
+      const a = main?.apr || hfBuilding?.approvalDate
+      return a && a.length >= 8 ? `${a.slice(0, 4)}-${a.slice(4, 6)}-${a.slice(6, 8)}` : null
+    })(),
     landSharePyeong,
     landShareSource,
     landShareLabel: share.label,
@@ -344,6 +347,7 @@ export async function GET(request: Request) {
         }
       : { unavailable: hasHofinder() ? 'HOFINDER_UNREACHABLE' : 'HOFINDER_OFF' },
     _meta: {
+      buildingIndex: buildingIndexStatus(),
       source:
         '건축물대장 / 공동주택 공시가격 / 대지권등록부(V-World 소유정보) / 서울시 의제처리구역' +
         (hf ? ' · 호파인더 대조' : ''),

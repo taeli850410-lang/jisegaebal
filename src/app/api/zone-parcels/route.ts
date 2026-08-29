@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { readFileSync } from 'node:fs'
+import { getBuildingIndex } from '@/lib/server/buildingIndex'
 import { join } from 'node:path'
 import { getAllDevelops } from '@/lib/server/developStore'
 import { fetchParcels, hasVWorld, ringAreaM2 } from '@/lib/server/vworld'
@@ -40,17 +41,12 @@ interface BuildingRow {
   ugrnd: number
   pk: string
 }
+/* 색인은 buildingIndex 모듈이 읽는다 — 배포에는 32MB 슬림본이 올라간다 */
 function buildings(): Record<string, { buildings: BuildingRow[]; semiBasement: number }> {
-  if (!buildingIndex) {
-    try {
-      buildingIndex = JSON.parse(
-        readFileSync(join(process.cwd(), 'data', 'building-index.json'), 'utf-8'),
-      )
-    } catch {
-      buildingIndex = {}
-    }
-  }
-  return buildingIndex!
+  return getBuildingIndex() as unknown as Record<
+    string,
+    { buildings: BuildingRow[]; semiBasement: number }
+  >
 }
 
 /** 공동주택 공시가격 — 지번마다 [전용면적, 공시가격, 지하여부] 목록 */
