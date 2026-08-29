@@ -197,7 +197,14 @@ export async function GET(request: Request) {
     })
     .map((p) => p.pnu)
   /*
-   * 대지권등록부부터 본다. 실제 값이라 안분 추정보다 우선한다.
+   * 대지권 자료는 "총면적"으로만 쓴다.
+   *
+   * 예전엔 이 API 의 호별 값을 실측 대지권으로 믿고 안분 추정보다 앞세웠다.
+   * 반대였다 — 캐시 104개 건물 중 60개(58%)에서 모든 호가 같은 값이고
+   * 그 값 × 호수가 정확히 필지면적이다. 균등분할이다.
+   * 실거래 560건으로 확인하니 대지권은 전용면적에 비례한다(82% 일치).
+   * 그래서 총면적만 받아 전용면적으로 나눈다. 자세한 건 lib/landShare.ts.
+   *
    * 건물이 있는 필지만 — 도로·나대지는 나눌 대지권이 없다.
    */
   const built = inside.filter((p) => {
@@ -211,10 +218,12 @@ export async function GET(request: Request) {
     built.map((p) => p.pnu),
     40,
   )
-  const expos = await getExposMany(
-    needExpos.filter((pnu) => !rights.has(pnu)),
-    20,
-  )
+  /*
+   * 대지권이 있어도 전유부가 있어야 호별로 나눌 수 있다.
+   * 예전엔 rights 가 있으면 전유부를 건너뛰었는데, 그래서 나눌 근거가 없어
+   * 균등분할값을 그대로 쓰게 됐다.
+   */
+  const expos = await getExposMany(needExpos, 20)
 
   const cards: ParcelCard[] = inside.map((p) => {
     const landM2 = Math.round(ringAreaM2(p.ring))
@@ -234,9 +243,17 @@ export async function GET(request: Request) {
      * 공시가격이 있으면 그걸 쓰고(가격까지 함께 오므로), 없으면 전유부를 쓴다.
      */
     const rg = rights.get(p.pnu) ?? null
-    const ex = rg || units.length ? null : (expos.get(p.pnu) ?? null)
+    const ex = units.length ? null : (expos.get(p.pnu) ?? null)
     const areas = units.length ? units.map((u) => u[0] || 0) : (ex?.map((u) => u[2]) ?? [])
     const totalExclusive = areas.reduce((s, a) => s + a, 0)
+    /*
+     * 나눌 대지 총면적.
+     * 대지권 자료가 있으면 그 합이 지적도 필지면적보다 정확하다 — 집합건물의
+     * 대지가 여러 필지에 걸칠 수 있기 때문이다. 서계동 245-11 이 그런 경우로,
+     * 지적 99.25㎡ 인데 대지권 합은 109.83㎡ 이고, 실거래 대지권면적은
+     * 후자로 계산해야 맞는다.
+     */
+    const totalLand = rg?.length ? rg.reduce((sum, u) => sum + u[2], 0) : landM2
     /*
      * 대지지분 안분 — 필지면적 × (그 호 전용면적 / 전체 전용면적 합).
      * 등기부상 대지권과 다를 수 있으므로 화면에서 "추정"이라고 밝힌다.
@@ -249,15 +266,13 @@ export async function GET(request: Request) {
      * 하나라 대지가 쪼개지지 않는다. 이걸 "모름"으로 두면 정비사업에서
      * 제일 중요한 물건(단독주택)이 통째로 빠진다.
      */
-    const whole = !rg && !totalExclusive && !!main
-    const shares = rg
-      ? // 대지권등록부의 실제 값 — 안분하지 않는다
-        rg.map((u) => u[2] / PYEONG)
-      : totalExclusive
-        ? areas.map((a) => (landM2 * a) / totalExclusive / PYEONG)
-        : whole
-          ? [landM2 / PYEONG]
-          : []
+    const whole = !totalExclusive && !!main
+    const shares = totalExclusive
+      ? // 전용면적 비례 — 실거래로 확인한 건물의 82%가 이 방식과 맞았다
+        areas.map((a) => (totalLand * a) / totalExclusive / PYEONG)
+      : whole
+        ? [landM2 / PYEONG]
+        : []
 
     const addr = `서울 ${p.gu ?? ''} ${dong} ${jibun}`.replace(/\s+/g, ' ').trim()
     return {
@@ -277,16 +292,14 @@ export async function GET(request: Request) {
       far: main?.far ?? null,
       bcr: main?.bcr ?? null,
       priceYear: hpEntry?.year ?? null,
-      unitCount: rg?.length || units.length || (ex?.length ?? 0) || (whole ? 1 : 0),
-      unitSource: rg
-        ? ('right' as const)
-        : units.length
-          ? ('price' as const)
-          : ex?.length
-            ? ('expos' as const)
-            : whole
-              ? ('whole' as const)
-              : ('none' as const),
+      unitCount: units.length || (ex?.length ?? 0) || rg?.length || (whole ? 1 : 0),
+      unitSource: units.length
+        ? ('price' as const)
+        : ex?.length
+          ? ('expos' as const)
+          : whole
+            ? ('whole' as const)
+            : ('none' as const),
       minUnitPrice: unitPrices.length ? Math.min(...unitPrices) : null,
       maxUnitPrice: unitPrices.length ? Math.max(...unitPrices) : null,
       landShareMinPyeong: shares.length ? Math.round(Math.min(...shares) * 100) / 100 : null,
@@ -326,7 +339,7 @@ export async function GET(request: Request) {
     _meta: {
       source:
         '필지·공시지가: 국토교통부 연속지적도(V-World) / 건축물: 건축물대장 / 공시가격: 공동주택 공시가격 / 실거래: 국토교통부',
-      note: '대지지분은 대지권등록부(V-World 소유정보)의 실제 값을 우선 씁니다. 그 값이 없는 지번만 전용면적 비율로 안분한 추정값이며, 집합건물이 아닌 필지는 필지 전체가 대지지분입니다. 호가(매물 가격)는 저장하지 않고 네이버 부동산 검색으로 연결합니다.',
+      note: '대지지분은 대지 총면적을 호별 전용면적 비율로 나눈 추정값입니다. 실거래 신고서의 대지권면적 560건과 대조해 82%의 건물에서 이 방식이 맞았습니다. 대지권등록부 자료가 있으면 그 합을 총면적으로 쓰고(집합건물의 대지는 여러 필지에 걸칠 수 있습니다), 없으면 지적도 필지면적을 씁니다. 집합건물이 아닌 필지는 필지 전체가 대지지분입니다. 확정은 등기부 대지권비율입니다. 호가(매물 가격)는 저장하지 않고 네이버 부동산 검색으로 연결합니다.',
     },
   })
 }
