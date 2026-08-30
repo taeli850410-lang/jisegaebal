@@ -1,7 +1,34 @@
 # Supabase 붙이기
 
 매물을 브라우저가 아니라 서버에 저장해 모두가 보게 하는 단계입니다.
-키를 넣기 전까지는 앱이 지금처럼 브라우저 저장으로 동작합니다.
+키를 넣기 전까지는 앱이 브라우저 저장으로 동작합니다.
+
+## 지금 상태 — 이미 붙어 있습니다
+
+**ho-finder 와 같은 Supabase 프로젝트를 씁니다.** 두 서비스가 같은 재개발
+데이터를 다루니 DB 가 하나인 편이 관리하기 쉽습니다.
+
+| | |
+|---|---|
+| Vercel 프로젝트 | `jisegaebal` (팀 aiholickr) |
+| 환경변수 | `SUPABASE_URL` · `SUPABASE_SERVICE_ROLE_KEY` — production/preview/development 전부 |
+| 테이블 | `listings` (21개 컬럼, 아래 schema.sql 그대로) |
+
+확인:
+
+```bash
+curl -s "https://jisegaebal.vercel.app/api/listings"
+```
+
+`{"items":[]...}` 가 나오면 켜진 것입니다.
+
+> **아직 로그인이 없습니다.** `/api/listings` 의 POST·DELETE 를 누구나 부를 수
+> 있고, 이제 그 DB 를 ho-finder 와 함께 씁니다. 공개 전에 반드시 소유자 검사를
+> 넣어야 합니다 — 자리는 라우트에 주석으로 표시해 두었습니다.
+
+---
+
+## 처음부터 다시 붙이는 경우
 
 ## 1. 프로젝트 만들기
 
