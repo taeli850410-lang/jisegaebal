@@ -48,6 +48,14 @@ export default function Sidebar({
             정
           </span>
           <span className="text-[15px] font-bold">정비사업 정보 플랫폼</span>
+          {/* 지번만 알면 바로 검증 — 구역을 먼저 찾을 필요가 없다 */}
+          <a
+            href="/verify"
+            title="주소와 호가로 바로 검증합니다 (호파인더 대조 포함)"
+            className="ml-auto rounded-full border border-indigo-200 px-2 py-0.5 text-[10px] font-bold text-indigo-700 hover:bg-indigo-50"
+          >
+            매물 검증
+          </a>
         </div>
         <div className="mt-3">
           <SearchBox onSelectZone={onSearchZone} onSelectPlace={onSearchPlace} />
