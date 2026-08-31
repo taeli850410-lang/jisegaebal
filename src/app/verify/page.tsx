@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react'
 import VerifyResult, { type VerifyPayload } from '@/components/detail/VerifyResult'
 import { computeMetrics, DEFAULT_ASSUMPTIONS, type Assumptions } from '@/lib/listingModel'
+import { parcelLinks } from '@/lib/listingLinks'
 
 /**
  * 매물 검증 — 주소와 호가만 넣으면 나머지는 공공데이터가 채운다.
@@ -265,6 +266,35 @@ export default function VerifyPage() {
 
           <div className="card p-4">
             <VerifyResult v={v} />
+          </div>
+
+          {/*
+            호가는 우리가 갖고 있지 않다. 중개사가 올린 곳으로 보낸다.
+            우리 서버는 그 사이트에 접속하지 않는다 — 주소만 만들어 준다.
+            (네이버는 robots.txt 가 전체 차단이고, 매물 DB 는
+             저작권법 제93조의 데이터베이스제작자 권리 대상이다.)
+          */}
+          <div className="card p-4">
+            <h3 className="text-[11px] font-bold text-gray-800">호가 확인하기</h3>
+            <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
+              호가는 우리가 갖고 있지 않습니다. 중개사가 실제로 올린 곳으로 갑니다.
+              거기서 본 <b>전용면적·층</b>을 위에 넣으면 대장과 맞는지 바로 나옵니다 —
+              광고에 다세대라고 적혀 있어도 대장이 근린생활시설인 경우가 있습니다.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {parcelLinks(gu, dong.trim(), jibun.trim()).map((l) => (
+                <a
+                  key={l.label}
+                  href={l.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={l.note}
+                  className="rounded-full border border-gray-200 px-2.5 py-1 text-[10px] font-bold text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                >
+                  {l.label} ↗
+                </a>
+              ))}
+            </div>
           </div>
         </div>
       )}
