@@ -1,9 +1,16 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import VerifyResult, { type VerifyPayload } from '@/components/detail/VerifyResult'
 import { computeMetrics, DEFAULT_ASSUMPTIONS, type Assumptions } from '@/lib/listingModel'
 import { parcelLinks } from '@/lib/listingLinks'
+import {
+  readNotes,
+  removeNote,
+  clearNotes,
+  saveNote,
+  type VerifyNote,
+} from '@/lib/verifyHistory'
 
 /**
  * 매물 검증 — 주소와 호가만 넣으면 나머지는 공공데이터가 채운다.
@@ -41,6 +48,9 @@ export default function VerifyPage() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [v, setV] = useState<VerifyPayload | null>(null)
+  /* 검토한 물건 목록 — 이 브라우저에만 남는다 */
+  const [notes, setNotes] = useState<VerifyNote[]>([])
+  useEffect(() => setNotes(readNotes()), [])
 
   const run = useCallback(async () => {
     if (!dong.trim() || !jibun.trim()) {
@@ -66,6 +76,29 @@ export default function VerifyPage() {
         return
       }
       setV(j)
+      setNotes(
+        saveNote(
+          {
+            gu,
+            dong: dong.trim(),
+            jibun: jibun.trim(),
+            floor: floor ? Number(floor) : null,
+            exclusiveAr: area ? Number(area) : null,
+            price: price ? Math.round(Number(price) * EOK) : null,
+            ho: j.facts?.matchedUnit?.ho ?? null,
+            purpose: j.facts?.matchedUnit?.purpose ?? j.facts?.purpose ?? null,
+            publicPrice: j.facts?.publicPrice ?? null,
+            landSharePyeong: j.landShare?.pyeong ?? null,
+            landShareLabel: j.landShare?.label ?? null,
+            verdict: j.verdict?.text ?? null,
+            verdictLevel: j.verdict?.level ?? null,
+            crossDiffer: (j.cross?.rows ?? [])
+              .filter((r: { status: string }) => r.status === 'differ')
+              .map((r: { label: string }) => r.label),
+          },
+          Date.now(),
+        ),
+      )
     } catch {
       setErr('연결에 실패했습니다. 잠시 후 다시 해주세요.')
     } finally {
@@ -298,6 +331,98 @@ export default function VerifyPage() {
           </div>
         </div>
       )}
+
+      {/*
+        검토한 물건. 이 브라우저에만 있다.
+        서버 DB 에 쌓으면 남의 플랫폼 매물을 우리 데이터베이스로 옮겨 적는
+        일이 된다 — 한 건씩 손으로 해도 반복되면 같은 문제다.
+      */}
+      {notes.length > 0 && (
+        <div className="card mt-4 p-4">
+          <div className="mb-1 flex items-baseline justify-between">
+            <h3 className="text-[11px] font-bold text-gray-800">
+              검토한 물건 <span className="text-gray-400">{notes.length}</span>
+            </h3>
+            <button
+              onClick={() => setNotes(clearNotes())}
+              className="text-[10px] text-gray-400 hover:text-rose-600"
+            >
+              전체 지우기
+            </button>
+          </div>
+          <p className="mb-2 text-[10px] leading-relaxed text-gray-500">
+            <b>이 브라우저에만 있습니다.</b> 서버에 올리지 않고 다른 사람에게 보이지 않습니다.
+            브라우저 데이터를 지우면 함께 사라집니다.
+          </p>
+
+          <div className="-mx-1 overflow-x-auto">
+            <table className="w-full min-w-[34rem] text-[10px]">
+              <thead className="text-gray-400">
+                <tr>
+                  <th className="px-1 py-1 text-left font-normal">물건</th>
+                  <th className="px-1 py-1 text-right font-normal">호가</th>
+                  <th className="px-1 py-1 text-left font-normal">대장 용도</th>
+                  <th className="px-1 py-1 text-right font-normal">공시가</th>
+                  <th className="px-1 py-1 text-right font-normal">대지지분</th>
+                  <th className="px-1 py-1"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {notes.map((n) => {
+                  const danger = n.verdictLevel === 'danger'
+                  return (
+                    <tr key={n.id} className={'border-t border-gray-100 ' + (danger ? 'bg-rose-50/60' : '')}>
+                      <td className="px-1 py-1.5">
+                        <span className="font-bold text-gray-800">
+                          {n.dong} {n.jibun}
+                        </span>
+                        <span className="text-gray-400">
+                          {n.ho ? ' · ' + n.ho : n.floor != null ? ' · ' + n.floor + '층' : ''}
+                          {n.exclusiveAr ? ' · ' + n.exclusiveAr + '㎡' : ''}
+                        </span>
+                        {danger && (
+                          <span className="ml-1 rounded bg-rose-100 px-1 font-bold text-rose-700">
+                            위험
+                          </span>
+                        )}
+                        {n.crossDiffer.length > 0 && (
+                          <span
+                            className="ml-1 text-amber-600"
+                            title={'호파인더와 갈린 항목: ' + n.crossDiffer.join(', ')}
+                          >
+                            ✗{n.crossDiffer.join('·')}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-1 py-1.5 text-right tabular-nums text-gray-800">
+                        {eok(n.price)}
+                      </td>
+                      <td className="px-1 py-1.5 text-gray-600">{n.purpose ?? '—'}</td>
+                      <td className="px-1 py-1.5 text-right tabular-nums text-gray-500">
+                        {n.publicPrice ? eok(n.publicPrice) : '없음'}
+                      </td>
+                      <td className="px-1 py-1.5 text-right tabular-nums text-gray-800">
+                        {n.landSharePyeong != null ? n.landSharePyeong + '평' : '—'}
+                        <span className="block text-[9px] text-gray-400">{n.landShareLabel}</span>
+                      </td>
+                      <td className="px-1 py-1.5 text-right">
+                        <button
+                          onClick={() => setNotes(removeNote(n.id))}
+                          className="text-gray-300 hover:text-rose-600"
+                          title="지우기"
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
