@@ -97,3 +97,37 @@ export async function sbDelete(table: string, query: string): Promise<SbResult<n
     return { ok: false, data: null, error: e instanceof Error ? e.message : 'FETCH_FAILED' }
   }
 }
+
+/**
+ * 있으면 갈아끼우고 없으면 넣는다.
+ *
+ * 공시가격처럼 "한 번 받아 두고 계속 쓰는" 값에 쓴다. 넣기 전에 조회해서
+ * 있는지 보면 왕복이 두 번이고, 그 사이에 다른 요청이 넣으면 충돌한다.
+ */
+export async function sbUpsert<T>(
+  table: string,
+  rows: unknown,
+  /** 충돌 판정에 쓸 컬럼 (기본키) */
+  onConflict: string,
+): Promise<SbResult<T[]>> {
+  const b = base()
+  if (!b) return { ok: false, data: null, error: 'NO_CONFIG' }
+  try {
+    const r = await fetch(
+      `${b.url}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`,
+      {
+        method: 'POST',
+        headers: headers(b.key, { Prefer: 'resolution=merge-duplicates,return=minimal' }),
+        body: JSON.stringify(rows),
+        cache: 'no-store',
+      },
+    )
+    if (!r.ok) {
+      const body = await r.text()
+      return { ok: false, data: null, error: `${r.status} ${body.slice(0, 200)}` }
+    }
+    return { ok: true, data: [] as T[], error: null }
+  } catch (e) {
+    return { ok: false, data: null, error: e instanceof Error ? e.message : 'FETCH_FAILED' }
+  }
+}

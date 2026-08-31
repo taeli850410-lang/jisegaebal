@@ -26,6 +26,13 @@ export async function middleware(req: NextRequest) {
   // 로그인 화면과 로그인 처리는 잠그면 안 된다 — 들어올 문이 막힌다
   if (pathname === '/login' || pathname === '/api/login') return NextResponse.next()
 
+  /*
+   * 크론은 쿠키를 들고 오지 않는다. 여기서 막으면 Vercel 크론이 401 만 받는다.
+   * 대신 그 라우트가 CRON_SECRET 을 직접 확인한다 — 잠금을 푼 게 아니라
+   * 다른 열쇠를 쓰는 것이다.
+   */
+  if (pathname.startsWith('/api/cron/')) return NextResponse.next()
+
   if (!secret) {
     return new NextResponse(
       '<!doctype html><meta charset="utf-8"><body style="font:15px/1.7 system-ui;padding:3rem;max-width:34rem;margin:auto">' +

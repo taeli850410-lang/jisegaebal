@@ -1,23 +1,30 @@
-# 공공데이터 수집.
+# 공공데이터 수집 (수동 · 국내 러너 전용)
 #
 # 네이버 등 남의 매물 플랫폼은 여기서 긁지 않는다. robots.txt 가 전체 차단이고
 # 매물 DB 는 저작권법 제93조의 데이터베이스제작자 권리 대상이다. 실행 위치를
 # 옮긴다고 달라지지 않으며, 매일 자동이면 오히려 "반복·체계적 추출"에 해당한다.
 # 여기서 받는 건 국토교통부·V-World 가 우리 키로 열어 준 공공데이터뿐이다.
 #
-# 주기를 데이터에 맞춘다
-#   공시가격은 연 1회 고시된다(현재 캐시의 16,239건이 2026년 기준).
-#   매일 돌면 남의 API 만 때리고 얻는 게 없다. 그래서 주 1회로 두고,
-#   빈 곳이 다 차면 사실상 아무 일도 안 하게 된다.
+# ── 왜 일정(cron)이 없나 ──────────────────────────────────
+# V-World 는 국내 IP 에서만 응답한다. GitHub 호스팅 러너는 해외라 못 쓴다.
+# 실제로 용산구 40건을 돌려 보니
+#     주소못찾음 1 · 조회실패 39 · 확보 0
+# 이었다. 주소 조회(카카오)는 39건 성공했으므로 지오코딩 문제가 아니다.
+# 같은 코드가 국내에서는 8건 중 7건을 확보한다.
 #
-#   진짜 매일 바뀌는 실거래는 화면에서 그때그때 조회하므로 수집 대상이 아니다.
+# 그래서 자동 수집은 Vercel 크론으로 옮겼다 — vercel.json 이 icn1(서울)로
+# 묶여 있어 거기서는 V-World 가 응답한다. /api/cron/prices 가 매일 조금씩
+# 채워 Supabase 에 쌓는다.
+#
+# 이 워크플로는 두 경우에만 쓴다.
+#   1) 국내에 self-hosted 러너를 붙였을 때 (runs-on 을 바꿔야 한다)
+#   2) 무엇이 왜 실패하는지 로그로 확인하고 싶을 때
+# 대량 백필은 로컬에서 도는 게 가장 빠르다:
+#   node scripts/warm-house-price.mjs --source building --gu 용산구 --limit 500
 
 name: 공공데이터 수집
 
 on:
-  schedule:
-    # 매주 월요일 03:00 KST (일요일 18:00 UTC) — 사람이 안 쓰는 시간
-    - cron: '0 18 * * 0'
   workflow_dispatch:
     inputs:
       gu:
@@ -27,9 +34,8 @@ on:
       limit:
         description: '이번 실행에서 채울 지번 수'
         required: false
-        default: '1000'
+        default: '40'
 
-# 겹쳐 돌면 같은 캐시를 두 번 쓰고 커밋이 충돌한다
 concurrency:
   group: collect
   cancel-in-progress: false
@@ -37,6 +43,8 @@ concurrency:
 jobs:
   house-price:
     name: 공동주택 공시가격 채우기
+    # 국내 self-hosted 러너가 있으면 여기를 그 라벨로 바꾼다.
+    # GitHub 호스팅(해외)에서는 V-World 가 거부하므로 스크립트가 1 로 끝난다.
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -55,7 +63,7 @@ jobs:
         run: |
           echo "count=$(node -e "console.log(Object.keys(require('./data/house-price-cache.json')).length)")" >> "$GITHUB_OUTPUT"
 
-      # 건축물대장에서 공동주택이 있는 지번만 대상으로 삼는다.
+      # 건축물대장에서 공동주택이 있는 지번을 대상으로 삼는다.
       # 실거래에 나온 지번만 훑던 예전 방식은 용산구 기준 20% 밖에 못 채웠다.
       - name: 공시가격 조회
         env:
@@ -66,7 +74,7 @@ jobs:
           node --max-old-space-size=4096 scripts/warm-house-price.mjs \
             --source building \
             --gu "${{ inputs.gu }}" \
-            --limit "${{ inputs.limit || 1000 }}"
+            --limit "${{ inputs.limit || 40 }}"
 
       - name: 채운 만큼만 커밋
         run: |
@@ -81,13 +89,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/house-price-cache.json
           git diff --cached --quiet && { echo "변경 없음"; exit 0; }
-          git commit -m "공시가격 ${ADDED}지번을 채운다 (총 ${AFTER})
-
-          건축물대장에서 공동주택이 있는 지번을 대상으로 V-World
-          getApartHousingPriceAttr 를 조회했다. 실거래에 나온 지번만 훑던
-          방식으로는 용산구 기준 20% 밖에 안 찼다.
-
-          공시가격이 없으면 화면이 감정가·프리미엄·초투를 내지 못하고
-          '산정 불가'로 빠진다. 근생이라 정말 없는 것과 구별되어야 해서
-          빈 곳을 채운다."
+          git commit -m "공시가격 ${ADDED}지번을 채운다 (총 ${AFTER})"
           git push

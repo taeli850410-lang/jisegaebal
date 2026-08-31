@@ -1,4 +1,5 @@
 ﻿import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { remoteGet, remotePut } from './priceStore'
 import { join } from 'node:path'
 
 /**
@@ -184,11 +185,23 @@ export async function getPublicPrice(
   if (lotKey in store) {
     lot = store[lotKey]
   } else {
-    const pnu = await resolvePnu(`서울 ${gu} ${dong} ${jibun}`)
-    if (!pnu) return null // 지오코딩 실패는 일시적일 수 있어 캐시하지 않는다
-    const res = await fetchLot(pnu)
-    if (!res.ok) return null // 호출 실패도 캐시하지 않는다 — 다음에 다시 시도한다
-    lot = res.lot
+    /*
+     * 배포에 실린 디스크 캐시에 없으면 Supabase 를 본다.
+     * 서버리스는 디스크가 읽기 전용이라 여기서 받은 값을 파일에 못 쌓는다 —
+     * 그래서 한 번 알아낸 건 Supabase 에 적어 두고 다음부터 거기서 읽는다.
+     */
+    const remote = await remoteGet(lotKey)
+    if (remote.hit) {
+      lot = remote.lot
+    } else {
+      const pnu = await resolvePnu(`서울 ${gu} ${dong} ${jibun}`)
+      if (!pnu) return null // 지오코딩 실패는 일시적일 수 있어 캐시하지 않는다
+      const res = await fetchLot(pnu)
+      if (!res.ok) return null // 호출 실패도 캐시하지 않는다 — 다음에 다시 시도한다
+      lot = res.lot
+      /* 없다는 사실도 알아낸 것이다. 그것까지 적어야 다시 안 묻는다. */
+      await remotePut(lotKey, lot)
+    }
     store[lotKey] = lot
     dirty = true
     persist()
