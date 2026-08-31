@@ -176,7 +176,17 @@ console.log(`대상 ${targets.length.toLocaleString()}지번 (기존 ${Object.ke
 
 let done = 0
 let hit = 0
-let failed = 0
+/*
+ * 실패를 한 덩어리로 세면 안 된다.
+ *   noPnu   — 주소를 못 찾음 (그런 지번이 없거나 표기가 다름)
+ *   apiFail — V-World 가 응답을 안 줌 (해외 IP 차단이면 전부 여기로 온다)
+ *   noPrice — 정상 응답인데 공동주택가격이 없음 (근생·단독 등)
+ * 셋을 뭉치면 "국내에서만 되는 API 를 해외에서 부르고 있다"를 못 본다.
+ * 실제로 GitHub Actions 러너에서 300건이 전부 apiFail 이었다.
+ */
+let noPnu = 0
+let apiFail = 0
+let noPrice = 0
 const C = 4
 
 for (let i = 0; i < targets.length; i += C) {
@@ -184,25 +194,29 @@ for (let i = 0; i < targets.length; i += C) {
   const res = await Promise.all(
     slice.map(async (t) => {
       const pnu = await resolvePnu(t.query)
-      if (!pnu) return { ok: false }
-      return fetchLot(pnu)
+      if (!pnu) return { ok: false, why: 'noPnu' }
+      const r = await fetchLot(pnu)
+      return r.ok ? r : { ok: false, why: 'apiFail' }
     }),
   )
   slice.forEach((t, k) => {
     done++
     if (!res[k].ok) {
-      failed++
-      return // 실패는 캐시에 남기지 않는다
+      // 실패는 캐시에 남기지 않는다 — 다음에 다시 시도한다
+      if (res[k].why === 'noPnu') noPnu++
+      else apiFail++
+      return
     }
     cache[t.lotKey] = res[k].lot
     if (res[k].lot) hit++
+    else noPrice++
   })
 
   if (done % 200 === 0 || i + C >= targets.length) {
     mkdirSync('data', { recursive: true })
     writeFileSync(OUT, JSON.stringify(cache))
     console.log(
-      `  ${done.toLocaleString()}/${targets.length.toLocaleString()} · 공시가격 보유 ${hit.toLocaleString()} · 미확정 ${failed}`,
+      `  ${done.toLocaleString()}/${targets.length.toLocaleString()} · 확보 ${hit.toLocaleString()} · 가격없음 ${noPrice} · 주소못찾음 ${noPnu} · 조회실패 ${apiFail}`,
     )
   }
   await sleep(80)
@@ -212,5 +226,19 @@ mkdirSync('data', { recursive: true })
 writeFileSync(OUT, JSON.stringify(cache))
 const withData = Object.values(cache).filter(Boolean).length
 console.log(
-  `\n완료: ${Object.keys(cache).length.toLocaleString()}지번 / 공시가격 있음 ${withData.toLocaleString()} · 이번 실패 ${failed}`,
+  `\n완료: ${Object.keys(cache).length.toLocaleString()}지번 / 공시가격 있음 ${withData.toLocaleString()} · 이번 확보 ${hit} · 가격없음 ${noPrice} · 주소못찾음 ${noPnu} · 조회실패 ${apiFail}`,
 )
+
+/*
+ * 조회가 통째로 실패하면 조용히 끝내지 않는다.
+ * V-World 는 국내 IP 만 받는다 — 해외에서 부르면 전부 여기로 떨어진다.
+ * 그때 성공한 척 끝내면 "채운 게 없네"로 보이고 원인을 못 찾는다.
+ */
+if (targets.length >= 20 && apiFail > targets.length * 0.5) {
+  console.error(
+    `
+조회가 ${apiFail}/${targets.length} 실패했습니다. V-World 는 국내 IP 에서만 응답합니다 — ` +
+      '해외 러너(GitHub Actions 등)에서는 채울 수 없습니다.',
+  )
+  process.exit(1)
+}
