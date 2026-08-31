@@ -10,10 +10,19 @@
  *   운영은 캐시만 읽는다.
  *
  * 대상
- *   data/jibun-cache.json 의 지번들. 실거래에 실제로 등장해 지오코딩까지 된
- *   지번이라, 화면에 나올 수 있는 것과 정확히 같은 집합이다.
+ *   기본은 data/jibun-cache.json — 실거래에 등장해 지오코딩까지 된 지번이다.
  *
- * 실행: node scripts/warm-house-price.mjs [--limit 5000]
+ *   그런데 그 집합은 좁다. 실거래가 없던 건물은 영영 안 채워진다.
+ *   실제로 용산구는 공동주택 3,346지번 중 666개(20%)만 차 있었다.
+ *   나머지는 화면에서 "공시가 없음"으로 보이는데, 근생이라 정말 없는 것과
+ *   구별이 안 된다.
+ *
+ *   --source building 을 주면 건축물대장 색인에서 공동주택이 있는 지번을
+ *   전부 대상으로 삼는다. --gu 로 좁힐 수 있다.
+ *
+ * 실행
+ *   node scripts/warm-house-price.mjs --limit 5000
+ *   node scripts/warm-house-price.mjs --source building --gu 용산구 --limit 400
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 
@@ -36,6 +45,8 @@ const arg = (n, d) => {
   return i >= 0 ? process.argv[i + 1] : d
 }
 const LIMIT = Number(arg('--limit', '20000'))
+const SOURCE = arg('--source', 'jibun')
+const ONLY_GU = arg('--gu', '')
 
 const OUT = 'data/house-price-cache.json'
 const cache = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf-8')) : {}
@@ -117,16 +128,48 @@ async function fetchLot(pnu) {
   return { ok: false }
 }
 
-/* jibun-cache 키 형식: "서울 강동구 성내동 47-16" */
-const jibun = JSON.parse(readFileSync('data/jibun-cache.json', 'utf-8'))
 const targets = []
-for (const key of Object.keys(jibun)) {
-  const m = key.match(/^서울\s+(\S+구)\s+(\S+)\s+(.+)$/)
-  if (!m) continue
-  const lotKey = `${m[1]}|${m[2]}|${m[3]}`
-  if (lotKey in cache) continue
-  targets.push({ lotKey, query: key })
-  if (targets.length >= LIMIT) break
+
+if (SOURCE === 'building') {
+  /*
+   * 건축물대장 색인에서 공동주택이 있는 지번만 고른다.
+   * 단독·근생만 있는 지번은 공동주택가격 자체가 없어 부를 이유가 없다 —
+   * 괜히 부르면 남의 API 만 때리고 빈 값을 캐시하게 된다.
+   */
+  const { gunzipSync } = await import('node:zlib')
+  const HOUSE = /공동주택|다세대|연립|아파트/
+  let bi
+  try {
+    bi = JSON.parse(gunzipSync(readFileSync('data/building-slim.json.gz')).toString('utf-8'))
+  } catch {
+    console.error('data/building-slim.json.gz 가 필요합니다 (npm run build:slim-index)')
+    process.exit(1)
+  }
+  for (const [key, v] of Object.entries(bi)) {
+    const [gu, dong, num] = key.split('|')
+    if (!gu || !dong || !num) continue
+    if (ONLY_GU && gu !== ONLY_GU) continue
+    if (!HOUSE.test((v.b ?? []).map((r) => r[0]).join(' '))) continue
+    const bon = Number(num.slice(0, 4))
+    const bu = Number(num.slice(4))
+    const jb = bu ? bon + "-" + bu : String(bon)
+    const lotKey = gu + "|" + dong + "|" + jb
+    if (lotKey in cache) continue
+    targets.push({ lotKey, query: "서울 " + gu + " " + dong + " " + jb })
+    if (targets.length >= LIMIT) break
+  }
+} else {
+  /* jibun-cache 키 형식: "서울 강동구 성내동 47-16" */
+  const jibun = JSON.parse(readFileSync('data/jibun-cache.json', 'utf-8'))
+  for (const key of Object.keys(jibun)) {
+    const m = key.match(/^서울[ ]+([^ ]+구)[ ]+([^ ]+)[ ]+(.+)$/)
+    if (!m) continue
+    if (ONLY_GU && m[1] !== ONLY_GU) continue
+    const lotKey = m[1] + "|" + m[2] + "|" + m[3]
+    if (lotKey in cache) continue
+    targets.push({ lotKey, query: key })
+    if (targets.length >= LIMIT) break
+  }
 }
 
 console.log(`대상 ${targets.length.toLocaleString()}지번 (기존 ${Object.keys(cache).length.toLocaleString()}건)`)

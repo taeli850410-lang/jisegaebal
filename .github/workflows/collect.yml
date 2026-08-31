@@ -1,0 +1,93 @@
+# 공공데이터 수집.
+#
+# 네이버 등 남의 매물 플랫폼은 여기서 긁지 않는다. robots.txt 가 전체 차단이고
+# 매물 DB 는 저작권법 제93조의 데이터베이스제작자 권리 대상이다. 실행 위치를
+# 옮긴다고 달라지지 않으며, 매일 자동이면 오히려 "반복·체계적 추출"에 해당한다.
+# 여기서 받는 건 국토교통부·V-World 가 우리 키로 열어 준 공공데이터뿐이다.
+#
+# 주기를 데이터에 맞춘다
+#   공시가격은 연 1회 고시된다(현재 캐시의 16,239건이 2026년 기준).
+#   매일 돌면 남의 API 만 때리고 얻는 게 없다. 그래서 주 1회로 두고,
+#   빈 곳이 다 차면 사실상 아무 일도 안 하게 된다.
+#
+#   진짜 매일 바뀌는 실거래는 화면에서 그때그때 조회하므로 수집 대상이 아니다.
+
+name: 공공데이터 수집
+
+on:
+  schedule:
+    # 매주 월요일 03:00 KST (일요일 18:00 UTC) — 사람이 안 쓰는 시간
+    - cron: '0 18 * * 0'
+  workflow_dispatch:
+    inputs:
+      gu:
+        description: '자치구 (비우면 서울 전체)'
+        required: false
+        default: ''
+      limit:
+        description: '이번 실행에서 채울 지번 수'
+        required: false
+        default: '1000'
+
+# 겹쳐 돌면 같은 캐시를 두 번 쓰고 커밋이 충돌한다
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  house-price:
+    name: 공동주택 공시가격 채우기
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: 채우기 전 상태
+        id: before
+        run: |
+          echo "count=$(node -e "console.log(Object.keys(require('./data/house-price-cache.json')).length)")" >> "$GITHUB_OUTPUT"
+
+      # 건축물대장에서 공동주택이 있는 지번만 대상으로 삼는다.
+      # 실거래에 나온 지번만 훑던 예전 방식은 용산구 기준 20% 밖에 못 채웠다.
+      - name: 공시가격 조회
+        env:
+          VWORLD_API_KEY: ${{ secrets.VWORLD_API_KEY }}
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          VWORLD_DOMAIN: https://jisegaebal.vercel.app
+        run: |
+          node --max-old-space-size=4096 scripts/warm-house-price.mjs \
+            --source building \
+            --gu "${{ inputs.gu }}" \
+            --limit "${{ inputs.limit || 1000 }}"
+
+      - name: 채운 만큼만 커밋
+        run: |
+          AFTER=$(node -e "console.log(Object.keys(require('./data/house-price-cache.json')).length)")
+          ADDED=$((AFTER - ${{ steps.before.outputs.count }}))
+          echo "새로 채운 지번: $ADDED"
+          if [ "$ADDED" -le 0 ]; then
+            echo "채운 게 없어 커밋하지 않는다."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/house-price-cache.json
+          git diff --cached --quiet && { echo "변경 없음"; exit 0; }
+          git commit -m "공시가격 ${ADDED}지번을 채운다 (총 ${AFTER})
+
+          건축물대장에서 공동주택이 있는 지번을 대상으로 V-World
+          getApartHousingPriceAttr 를 조회했다. 실거래에 나온 지번만 훑던
+          방식으로는 용산구 기준 20% 밖에 안 찼다.
+
+          공시가격이 없으면 화면이 감정가·프리미엄·초투를 내지 못하고
+          '산정 불가'로 빠진다. 근생이라 정말 없는 것과 구별되어야 해서
+          빈 곳을 채운다."
+          git push
